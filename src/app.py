@@ -12,7 +12,7 @@ import streamlit as st
 import os
 import re
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
 from PyPDF2 import PdfReader
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -90,6 +90,8 @@ def init_session_state():
         st.session_state.tfidf_matrix = None
     if 'policies_loaded' not in st.session_state:
         st.session_state.policies_loaded = False
+    if 'genai_client' not in st.session_state:
+        st.session_state.genai_client = None
 
 # ============== PDF PROCESSING ==============
 def extract_text_from_pdf(pdf_path):
@@ -188,25 +190,27 @@ def find_relevant_chunks(query, top_k=3):
 
 # ============== GEMINI AI SETUP ==============
 def setup_gemini():
-    """Setup Gemini API"""
+    """Setup Gemini API using new google-genai package"""
     try:
         # Try to get API key from Streamlit secrets (for deployment)
         api_key = st.secrets.get("GEMINI_API_KEY", None)
     except:
-        # Fallback to environment variable or input
+        # Fallback to environment variable
         api_key = os.getenv("GEMINI_API_KEY")
     
     if not api_key:
         return None
     
-    genai.configure(api_key=api_key)
-    return genai
+    try:
+        client = genai.Client(api_key=api_key)
+        return client
+    except Exception as e:
+        st.error(f"Error initializing Gemini: {str(e)}")
+        return None
 
-def get_gemini_response(query, context, chat_history):
+def get_gemini_response(query, context, chat_history, client):
     """Get response from Gemini with Indian HR context"""
     try:
-        model = genai.GenerativeModel('gemini-pro')
-        
         # Build conversation history
         history_text = ""
         for msg in chat_history[-3:]:  # Last 3 messages for context
@@ -233,7 +237,11 @@ INSTRUCTIONS:
 
 Provide a clear, accurate response:"""
         
-        response = model.generate_content(prompt)
+        # Use the new API format
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
         return response.text
         
     except Exception as e:
@@ -255,7 +263,11 @@ def process_query(query):
         context = "No specific policy information found for this query."
     
     # Get AI response
-    response = get_gemini_response(query, context, st.session_state.chat_history)
+    client = st.session_state.genai_client
+    if client:
+        response = get_gemini_response(query, context, st.session_state.chat_history, client)
+    else:
+        response = "I'm currently operating in policy search mode only. For AI-powered answers, please ensure the API key is configured."
     
     # Determine if we should show "Contact HR" suggestion
     show_contact_hr = any(phrase in response.lower() for phrase in [
@@ -294,6 +306,10 @@ def main():
     # Initialize
     init_session_state()
     
+    # Setup Gemini client if not already done
+    if st.session_state.genai_client is None:
+        st.session_state.genai_client = setup_gemini()
+    
     # Load policies (only once)
     if not st.session_state.policies_loaded:
         with st.spinner("📚 Loading HR policies..."):
@@ -310,12 +326,7 @@ def main():
                 return
     
     # Check for API key
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY", None)
-    except:
-        api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key:
+    if st.session_state.genai_client is None:
         st.warning("⚠️ Gemini API key not configured. The chatbot will use policy search only.")
         st.info("To enable AI responses, add your GEMINI_API_KEY to Streamlit secrets.")
     
