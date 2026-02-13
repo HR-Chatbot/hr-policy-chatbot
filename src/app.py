@@ -1,6 +1,6 @@
 """
 HR Policy Chatbot for Indian Companies
-Uses OLD google-generativeai package (stable)
+Uses google-generativeai package (stable)
 """
 
 import streamlit as st
@@ -160,7 +160,7 @@ CONVERSATION HISTORY:
 
 QUESTION: {query}
 
-Provide a helpful, professional response based on the context. If you don't know the answer, say "Please contact HR directly for assistance.""""
+Provide a helpful, professional response based on the context. If you do not know the answer, say 'Please contact HR directly for assistance.'"""
         
         response = model.generate_content(prompt)
         return response.text
