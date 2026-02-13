@@ -1,12 +1,12 @@
 """
 HR Policy Chatbot for Indian Companies
-Uses google-generativeai package (stable)
+Uses NEW google-genai package with gemini-1.5-flash model
 """
 
 import streamlit as st
 import os
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -136,14 +136,13 @@ def setup_gemini():
         return None
     
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        return model
+        client = genai.Client(api_key=api_key)
+        return client
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Error initializing Gemini: {str(e)}")
         return None
 
-def get_gemini_response(query, context, chat_history, model):
+def get_gemini_response(query, context, chat_history, client):
     try:
         history_text = ""
         for msg in chat_history[-3:]:
@@ -162,21 +161,26 @@ QUESTION: {query}
 
 Provide a helpful, professional response based on the context. If you do not know the answer, say 'Please contact HR directly for assistance.'"""
         
-        response = model.generate_content(prompt)
+        # Use the new API format with correct model name
+        response = client.models.generate_content(
+            model="gemini-1.5-flash-002",
+            contents=prompt
+        )
         return response.text
+        
     except Exception as e:
         return f"Error: {str(e)}"
 
 # ============== MAIN CHATBOT LOGIC ==============
-def process_query(query, model):
+def process_query(query, client):
     relevant_chunks, scores = find_relevant_chunks(query)
     context = "\n\n".join([f"{chunk}" for chunk, score in zip(relevant_chunks, scores) if score > 0.1])
     
     if not context:
         context = "No specific policy information found."
     
-    if model:
-        response = get_gemini_response(query, context, st.session_state.chat_history, model)
+    if client:
+        response = get_gemini_response(query, context, st.session_state.chat_history, client)
     else:
         response = "API not configured. Please contact HR."
     
@@ -196,7 +200,7 @@ def main():
     
     init_session_state()
     
-    model = setup_gemini()
+    client = setup_gemini()
     
     if not st.session_state.policies_loaded:
         with st.spinner("📚 Loading policies..."):
@@ -210,7 +214,7 @@ def main():
                 st.error("❌ No policies loaded")
                 return
     
-    if model is None:
+    if client is None:
         st.warning("⚠️ API key not configured")
     
     display_chat_history()
@@ -231,7 +235,7 @@ def main():
     if submit and query:
         st.session_state.chat_history.append({"role": "user", "content": query})
         with st.spinner("🤔 Thinking..."):
-            response = process_query(query, model)
+            response = process_query(query, client)
         st.session_state.chat_history.append({"role": "assistant", "content": response})
         st.rerun()
     
