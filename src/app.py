@@ -113,7 +113,7 @@ def chunk_text(text, chunk_size=500, overlap=100):
     
     for i in range(0, len(words), chunk_size - overlap):
         chunk = " ".join(words[i:i + chunk_size])
-        if len(chunk) > 50:  # Only keep substantial chunks
+        if len(chunk) > 50:
             chunks.append(chunk)
     
     return chunks
@@ -180,7 +180,6 @@ def find_relevant_chunks(query, top_k=3):
     query_vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
     
-    # Get top-k indices
     top_indices = similarities.argsort()[-top_k:][::-1]
     
     relevant_chunks = [st.session_state.policy_chunks[i] for i in top_indices]
@@ -192,10 +191,8 @@ def find_relevant_chunks(query, top_k=3):
 def setup_gemini():
     """Setup Gemini API using new google-genai package"""
     try:
-        # Try to get API key from Streamlit secrets (for deployment)
         api_key = st.secrets.get("GEMINI_API_KEY", None)
     except:
-        # Fallback to environment variable
         api_key = os.getenv("GEMINI_API_KEY")
     
     if not api_key:
@@ -211,9 +208,8 @@ def setup_gemini():
 def get_gemini_response(query, context, chat_history, client):
     """Get response from Gemini with Indian HR context"""
     try:
-        # Build conversation history
         history_text = ""
-        for msg in chat_history[-3:]:  # Last 3 messages for context
+        for msg in chat_history[-3:]:
             role = "Employee" if msg['role'] == 'user' else "HR Assistant"
             history_text += f"{role}: {msg['content']}\n"
         
@@ -237,9 +233,8 @@ INSTRUCTIONS:
 
 Provide a clear, accurate response:"""
         
-        # Use the new API format
         response = client.models.generate_content(
-            model="gemini-1.5-flash-002",",
+            model="gemini-1.5-flash-002",
             contents=prompt
         )
         return response.text
@@ -251,25 +246,20 @@ Provide a clear, accurate response:"""
 def process_query(query):
     """Process user query and generate response"""
     
-    # Find relevant policy chunks
     relevant_chunks, scores = find_relevant_chunks(query)
     
-    # Build context from relevant chunks
     context = "\n\n".join([f"[Relevance: {score:.2f}]\n{chunk}" 
                           for chunk, score in zip(relevant_chunks, scores) if score > 0.1])
     
-    # If no relevant context found, use generic message
     if not context:
         context = "No specific policy information found for this query."
     
-    # Get AI response
     client = st.session_state.genai_client
     if client:
         response = get_gemini_response(query, context, st.session_state.chat_history, client)
     else:
         response = "I'm currently operating in policy search mode only. For AI-powered answers, please ensure the API key is configured."
     
-    # Determine if we should show "Contact HR" suggestion
     show_contact_hr = any(phrase in response.lower() for phrase in [
         "don't have specific information",
         "contact hr",
@@ -299,18 +289,14 @@ def display_chat_history():
 def main():
     """Main application function"""
     
-    # Header
     st.markdown('<div class="main-header">💼 HR Policy Assistant</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Your 24/7 HR companion. Ask about leave, attendance, benefits, and more.</div>', unsafe_allow_html=True)
     
-    # Initialize
     init_session_state()
     
-    # Setup Gemini client if not already done
     if st.session_state.genai_client is None:
         st.session_state.genai_client = setup_gemini()
     
-    # Load policies (only once)
     if not st.session_state.policies_loaded:
         with st.spinner("📚 Loading HR policies..."):
             chunks, sources, pdf_files = load_policies()
@@ -325,15 +311,12 @@ def main():
                 st.error("❌ No policies loaded. Please upload PDF files to the policies folder.")
                 return
     
-    # Check for API key
     if st.session_state.genai_client is None:
         st.warning("⚠️ Gemini API key not configured. The chatbot will use policy search only.")
         st.info("To enable AI responses, add your GEMINI_API_KEY to Streamlit secrets.")
     
-    # Display chat history
     display_chat_history()
     
-    # Input area
     st.markdown("---")
     query = st.text_input("Ask your HR question:", 
                          placeholder="E.g., How many casual leaves do I have? How do I apply for leave?",
@@ -352,20 +335,15 @@ def main():
         st.rerun()
     
     if submit and query:
-        # Add user message to history
         st.session_state.chat_history.append({"role": "user", "content": query})
         
-        # Process query
         with st.spinner("🤔 Thinking..."):
             response, relevant_chunks, show_contact_hr = process_query(query)
         
-        # Add bot response to history
         st.session_state.chat_history.append({"role": "assistant", "content": response})
         
-        # Rerun to display updated chat
         st.rerun()
     
-    # Footer
     st.markdown("---")
     st.markdown("""
         <div style="text-align: center; color: #666; font-size: 0.9rem;">
