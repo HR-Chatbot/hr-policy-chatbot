@@ -1,102 +1,369 @@
 """
-HR Policy Chatbot for Indian Companies
-Uses google-genai package with gemini-2.5-pro model
+HR Policy Chatbot for Indian Companies - Enhanced Version
+Features: Professional UI, Mobile-friendly, Better UX, Error handling
 """
 
 import streamlit as st
 import os
+import time
 from pathlib import Path
 from google import genai
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ============== CONFIGURATION ==============
+# ============== PAGE CONFIG ==============
 st.set_page_config(
-    page_title="HR Policy Assistant",
+    page_title="HR Policy Assistant | 24/7 Support",
     page_icon="💼",
     layout="centered",
+    initial_sidebar_state="expanded",
     initial_sidebar_state="collapsed"
 )
 
 # ============== CUSTOM CSS ==============
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    * {
+        font-family: 'Inter', sans-serif;
+    }
+    
     .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f4788;
+        font-size: 2.8rem;
+        font-weight: 700;
+        color: #1a365d;
         text-align: center;
         margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
+    
     .sub-header {
-        font-size: 1.1rem;
-        color: #666;
+        font-size: 1.2rem;
+        color: #4a5568;
         text-align: center;
         margin-bottom: 2rem;
+        font-weight: 400;
     }
-    .chat-message {
-        padding: 1rem;
-        border-radius: 10px;
+    
+    .welcome-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 16px;
+        color: white;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    }
+    
+    .welcome-title {
+        font-size: 1.5rem;
+        font-weight: 600;
         margin-bottom: 1rem;
     }
-    .user-message {
-        background-color: #e3f2fd;
-        border-left: 5px solid #2196f3;
+    
+    .example-questions {
+        background: rgba(255,255,255,0.15);
+        padding: 1rem;
+        border-radius: 12px;
+        margin-top: 1rem;
     }
+    
+    .example-question {
+        display: inline-block;
+        background: rgba(255,255,255,0.9);
+        color: #4a5568;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        margin: 0.25rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .example-question:hover {
+        background: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .chat-container {
+        background: #f7fafc;
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        min-height: 400px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    .chat-message {
+        padding: 1rem 1.25rem;
+        border-radius: 18px;
+        margin-bottom: 1rem;
+        max-width: 85%;
+        animation: fadeIn 0.3s ease;
+        line-height: 1.5;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .user-message {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 4px;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    
     .bot-message {
-        background-color: #f3e5f5;
-        border-left: 5px solid #9c27b0;
+        background: white;
+        color: #2d3748;
+        margin-right: auto;
+        border-bottom-left-radius: 4px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        border: 1px solid #e2e8f0;
+    }
+    
+    .message-header {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        opacity: 0.9;
+    }
+    
+    .input-container {
+        background: white;
+        padding: 1rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid #e2e8f0;
+    }
+    
+    .stTextInput>div>div>input {
+        border-radius: 12px;
+        border: 2px solid #e2e8f0;
+        padding: 1rem;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+    }
+    
+    .stTextInput>div>div>input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .action-button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    
+    .action-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+    }
+    
+    .secondary-button {
+        background: #edf2f7;
+        color: #4a5568;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    
+    .secondary-button:hover {
+        background: #e2e8f0;
+    }
+    
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 1rem 1.25rem;
+        background: white;
+        border-radius: 18px;
+        border-bottom-left-radius: 4px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        width: fit-content;
+        margin-bottom: 1rem;
+    }
+    
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        background: #667eea;
+        border-radius: 50%;
+        animation: typing 1.4s infinite;
+    }
+    
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    
+    @keyframes typing {
+        0%, 60%, 100% { transform: translateY(0); }
+        30% { transform: translateY(-10px); }
+    }
+    
+    .policy-badge {
+        display: inline-block;
+        background: #edf2f7;
+        color: #4a5568;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        margin-top: 0.5rem;
+    }
+    
+    .error-card {
+        background: #fed7d7;
+        border: 1px solid #fc8181;
+        color: #c53030;
+        padding: 1rem;
+        border-radius: 12px;
+        margin: 1rem 0;
+    }
+    
+    .contact-hr-card {
+        background: linear-gradient(135deg, #f6e05e 0%, #d69e2e 100%);
+        color: #744210;
+        padding: 1.5rem;
+        border-radius: 16px;
+        text-align: center;
+        margin-top: 1rem;
+    }
+    
+    .sidebar-content {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    
+    .faq-item {
+        background: #f7fafc;
+        padding: 1rem;
+        border-radius: 12px;
+        margin-bottom: 0.75rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .faq-item:hover {
+        background: #edf2f7;
+        transform: translateX(5px);
+    }
+    
+    .stats-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    
+    .stats-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #667eea;
+    }
+    
+    .footer {
+        text-align: center;
+        color: #718096;
+        font-size: 0.875rem;
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e2e8f0;
+    }
+    
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 2rem;
+        }
+        .chat-message {
+            max-width: 95%;
+            font-size: 0.95rem;
+        }
+        .welcome-card {
+            padding: 1.5rem;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============== INITIALIZATION ==============
 def init_session_state():
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = []
-    if 'policy_chunks' not in st.session_state:
-        st.session_state.policy_chunks = []
-    if 'vectorizer' not in st.session_state:
-        st.session_state.vectorizer = None
-    if 'tfidf_matrix' not in st.session_state:
-        st.session_state.tfidf_matrix = None
-    if 'policies_loaded' not in st.session_state:
-        st.session_state.policies_loaded = False
+    defaults = {
+        'chat_history': [],
+        'policy_chunks': [],
+        'policy_sources': [],
+        'vectorizer': None,
+        'tfidf_matrix': None,
+        'policies_loaded': False,
+        'genai_client': None,
+        'show_typing': False
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 # ============== PDF PROCESSING ==============
+@st.cache_data(show_spinner=False)
 def extract_text_from_pdf(pdf_path):
     try:
         reader = PdfReader(pdf_path)
         text = ""
         for page in reader.pages:
-            text += page.extract_text() + "\n"
+            text += page.extract_text() or ""
         return text
     except Exception as e:
         return ""
 
-def chunk_text(text, chunk_size=500, overlap=100):
+def chunk_text(text, chunk_size=800, overlap=150):
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size - overlap):
         chunk = " ".join(words[i:i + chunk_size])
-        if len(chunk) > 50:
+        if len(chunk) > 100:
             chunks.append(chunk)
     return chunks
 
 def load_policies():
     policies_dir = Path("policies")
     if not policies_dir.exists():
+        st.error("❌ Policies folder not found!")
         return [], [], []
     
     pdf_files = list(policies_dir.glob("*.pdf"))
-    all_chunks = []
-    chunk_sources = []
+    if not pdf_files:
+        st.warning("⚠️ No PDF files found")
+        return [], [], []
+    
+    all_chunks, chunk_sources = [], []
     
     progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     for idx, pdf_file in enumerate(pdf_files):
-        progress = (idx + 1) / len(pdf_files)
-        progress_bar.progress(progress)
+        status_text.text(f"📄 Loading: {pdf_file.name}...")
+        progress_bar.progress((idx + 1) / len(pdf_files))
         
         text = extract_text_from_pdf(pdf_file)
         if text:
@@ -106,6 +373,7 @@ def load_policies():
                 chunk_sources.append(pdf_file.name)
     
     progress_bar.empty()
+    status_text.empty()
     return all_chunks, chunk_sources, pdf_files
 
 # ============== SEARCH FUNCTIONALITY ==============
@@ -117,13 +385,14 @@ def setup_vectorizer(chunks):
     return vectorizer, tfidf_matrix
 
 def find_relevant_chunks(query, top_k=3):
-    if st.session_state.vectorizer is None:
+    if st.session_state.vectorizer is None or not st.session_state.policy_chunks:
         return [], []
     query_vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
     top_indices = similarities.argsort()[-top_k:][::-1]
     relevant_chunks = [st.session_state.policy_chunks[i] for i in top_indices]
-    return relevant_chunks, similarities[top_indices]
+    scores = similarities[top_indices]
+    return relevant_chunks, scores
 
 # ============== GEMINI AI SETUP ==============
 def setup_gemini():
@@ -146,22 +415,29 @@ def get_gemini_response(query, context, chat_history, client):
     try:
         history_text = ""
         for msg in chat_history[-3:]:
-            role = "Employee" if msg['role'] == 'user' else "HR Assistant"
+            role = "👤 Employee" if msg['role'] == 'user' else "🤖 HR Assistant"
             history_text += f"{role}: {msg['content']}\n"
         
-        prompt = f"""You are an HR Policy Assistant for an Indian company.
+        prompt = f"""You are a professional HR Policy Assistant for an Indian company. Provide helpful, accurate responses based on company policies.
 
-CONTEXT FROM POLICY DOCUMENTS:
+CONTEXT FROM COMPANY POLICY DOCUMENTS:
 {context}
 
 CONVERSATION HISTORY:
 {history_text}
 
-QUESTION: {query}
+CURRENT QUESTION: {query}
 
-Provide a helpful, professional response based on the context. If you do not know the answer, say 'Please contact HR directly for assistance.'"""
+INSTRUCTIONS:
+1. Answer based on the provided policy context first
+2. If information is not in policies, provide general Indian HR best practices
+3. Keep responses professional, concise, and friendly
+4. For leave questions, mention applying through HR portal/manager
+5. If unsure, say "Please contact HR directly for specific assistance"
+6. Use bullet points for clarity when listing information
+
+Provide a helpful response:"""
         
-        # Use gemini-2.5-pro model (you have 1.5K requests/day available)
         response = client.models.generate_content(
             model="gemini-2.5-pro",
             contents=prompt
@@ -169,78 +445,264 @@ Provide a helpful, professional response based on the context. If you do not kno
         return response.text
         
     except Exception as e:
-        return f"Error: {str(e)}"
+        error_msg = str(e)
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+            return "API_QUOTA_EXHAUSTED"
+        return f"Error processing request: {error_msg}"
 
-# ============== MAIN CHATBOT LOGIC ==============
-def process_query(query, client):
-    relevant_chunks, scores = find_relevant_chunks(query)
-    context = "\n\n".join([f"{chunk}" for chunk, score in zip(relevant_chunks, scores) if score > 0.1])
-    
-    if not context:
-        context = "No specific policy information found."
-    
-    if client:
-        response = get_gemini_response(query, context, st.session_state.chat_history, client)
-    else:
-        response = "API not configured. Please contact HR."
-    
-    return response
+# ============== UI COMPONENTS ==============
+def show_welcome_screen():
+    st.markdown("""
+        <div class="welcome-card">
+            <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
+            <p style="font-size: 1.1rem; opacity: 0.95;">
+                I'm here to help you with HR policies, leave applications, benefits, and more. 
+                Available 24/7 for your convenience!
+            </p>
+            <div class="example-questions">
+                <div style="font-weight: 600; margin-bottom: 0.5rem;">💡 Try asking:</div>
+                <div class="example-question" onclick="document.querySelector('input[type=text]').value='How many casual leaves do I have?'; document.querySelector('input[type=text]').focus();">
+                    How many casual leaves do I have?
+                </div>
+                <div class="example-question" onclick="document.querySelector('input[type=text]').value='What is the notice period policy?'; document.querySelector('input[type=text]').focus();">
+                    What is the notice period policy?
+                </div>
+                <div class="example-question" onclick="document.querySelector('input[type=text]').value='How do I apply for medical leave?'; document.querySelector('input[type=text]').focus();">
+                    How do I apply for medical leave?
+                </div>
+                <div class="example-question" onclick="document.querySelector('input[type=text]').value='What are the working hours?'; document.querySelector('input[type=text]').focus();">
+                    What are the working hours?
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
-# ============== UI ==============
 def display_chat_history():
     for message in st.session_state.chat_history:
         if message['role'] == 'user':
-            st.markdown(f'<div class="chat-message user-message"><b>👤 You:</b><br>{message["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class="chat-message user-message">
+                    <div class="message-header">👤 You</div>
+                    {message['content']}
+                </div>
+            """, unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="chat-message bot-message"><b>🤖 HR Assistant:</b><br>{message["content"]}</div>', unsafe_allow_html=True)
+            if message['content'] == "API_QUOTA_EXHAUSTED":
+                st.markdown("""
+                    <div class="chat-message bot-message">
+                        <div class="message-header">🤖 HR Assistant</div>
+                        <div style="color: #c53030; font-weight: 500;">
+                            ⚠️ Service temporarily unavailable due to high demand.
+                        </div>
+                        <div style="margin-top: 0.5rem;">
+                            Please contact HR directly for immediate assistance:
+                            <br>📧 hr@company.com | 📞 Ext. 1234
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="message-header">🤖 HR Assistant</div>
+                        {message['content']}
+                    </div>
+                """, unsafe_allow_html=True)
 
+def show_typing_indicator():
+    st.markdown("""
+        <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <span style="color: #718096; font-size: 0.9rem; margin-left: 0.5rem;">Thinking...</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+def show_contact_hr_card():
+    st.markdown("""
+        <div class="contact-hr-card">
+            <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">
+                📞 Need Personal Assistance?
+            </div>
+            <div style="font-size: 1rem;">
+                Our HR team is here to help with complex queries
+                <br><br>
+                <strong>Email:</strong> hr@company.com<br>
+                <strong>Phone:</strong> Ext. 1234<br>
+                <strong>Hours:</strong> Mon-Fri, 9 AM - 6 PM
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+# ============== SIDEBAR ==============
+def show_sidebar():
+    with st.sidebar:
+        st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
+        
+        st.markdown("### 📊 Quick Stats")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"""
+                <div class="stats-card">
+                    <div class="stats-number">{len(st.session_state.policy_chunks)}</div>
+                    <div style="font-size: 0.875rem; color: #718096;">Policy Sections</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+                <div class="stats-card">
+                    <div class="stats-number">{len([m for m in st.session_state.chat_history if m['role'] == 'user'])}</div>
+                    <div style="font-size: 0.875rem; color: #718096;">Questions Asked</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown("### ❓ Frequently Asked")
+        faqs = [
+            "How do I apply for leave?",
+            "What is the notice period?",
+            "How many casual leaves per year?",
+            "What are company working hours?",
+            "How to claim medical reimbursement?"
+        ]
+        for faq in faqs:
+            st.markdown(f'<div class="faq-item" onclick="document.querySelector(\'input[type=text]\').value=\'{faq}\';">{faq}</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown("### 📞 Contact HR")
+        st.markdown("""
+            <div style="background: #f7fafc; padding: 1rem; border-radius: 12px;">
+                <strong>HR Department</strong><br>
+                📧 hr@company.com<br>
+                📞 Ext. 1234<br>
+                🕐 Mon-Fri: 9 AM - 6 PM
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ============== MAIN APP ==============
 def main():
-    st.markdown('<div class="main-header">💼 HR Policy Assistant</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Your 24/7 HR companion</div>', unsafe_allow_html=True)
-    
     init_session_state()
     
-    client = setup_gemini()
+    # Header
+    st.markdown('<div class="main-header">💼 HR Policy Assistant</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Your 24/7 AI-powered HR companion</div>', unsafe_allow_html=True)
     
+    # Setup Gemini
+    if st.session_state.genai_client is None:
+        st.session_state.genai_client = setup_gemini()
+    
+    # Load policies
     if not st.session_state.policies_loaded:
-        with st.spinner("📚 Loading policies..."):
+        with st.spinner("📚 Loading HR policies..."):
             chunks, sources, pdf_files = load_policies()
             if chunks:
                 st.session_state.policy_chunks = chunks
+                st.session_state.policy_sources = sources
                 st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
                 st.session_state.policies_loaded = True
-                st.success(f"✅ Loaded {len(pdf_files)} policy documents")
+                st.success(f"✅ Loaded {len(pdf_files)} policy documents with {len(chunks)} sections")
             else:
-                st.error("❌ No policies loaded")
+                st.error("❌ No policies found. Please upload PDF files to the policies folder.")
                 return
     
-    if client is None:
-        st.warning("⚠️ API key not configured")
+    # Show sidebar
+    show_sidebar()
     
+    # Welcome screen (only if no chat history)
+    if not st.session_state.chat_history:
+        show_welcome_screen()
+    
+    # Chat container
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     display_chat_history()
     
-    st.markdown("---")
-    query = st.text_input("Ask your HR question:", placeholder="E.g., How many casual leaves do I have?", key="user_input")
+    if st.session_state.show_typing:
+        show_typing_indicator()
     
-    col1, col2 = st.columns([1, 4])
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Input area
+    st.markdown('<div class="input-container">', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([4, 1])
+    
     with col1:
-        submit = st.button("🚀 Ask", use_container_width=True)
-    with col2:
-        clear = st.button("🔄 Clear Chat")
+        query = st.text_input(
+            "Ask your question...",
+            placeholder="E.g., How many casual leaves do I have?",
+            key="user_input",
+            label_visibility="collapsed"
+        )
     
+    with col2:
+        submit = st.button("🚀 Ask", use_container_width=True, type="primary")
+    
+    col3, col4, col5 = st.columns([1, 1, 2])
+    with col3:
+        clear = st.button("🔄 Clear", use_container_width=True)
+    with col4:
+        contact = st.button("📞 Contact HR", use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Handle buttons
     if clear:
         st.session_state.chat_history = []
         st.rerun()
     
+    if contact:
+        show_contact_hr_card()
+    
     if submit and query:
+        # Add user message
         st.session_state.chat_history.append({"role": "user", "content": query})
-        with st.spinner("🤔 Thinking..."):
-            response = process_query(query, client)
-        st.session_state.chat_history.append({"role": "assistant", "content": response})
+        st.session_state.show_typing = True
         st.rerun()
     
-    st.markdown("---")
-    st.markdown('<div style="text-align: center; color: #666; font-size: 0.9rem;"><p>🕐 Available 24/7 | For complex issues, contact HR directly</p></div>', unsafe_allow_html=True)
+    # Process AI response (after rerun)
+    if st.session_state.show_typing and st.session_state.chat_history:
+        last_msg = st.session_state.chat_history[-1]
+        if last_msg['role'] == 'user':
+            # Find relevant chunks
+            relevant_chunks, scores = find_relevant_chunks(last_msg['content'])
+            context = "\n\n".join([f"{chunk}" for chunk, score in zip(relevant_chunks, scores) if score > 0.1])
+            
+            if not context:
+                context = "No specific policy information found in documents."
+            
+            # Get AI response
+            if st.session_state.genai_client:
+                response = get_gemini_response(
+                    last_msg['content'], 
+                    context, 
+                    st.session_state.chat_history[:-1], 
+                    st.session_state.genai_client
+                )
+            else:
+                response = "API not configured. Please contact HR directly."
+            
+            # Add bot response
+            st.session_state.chat_history.append({"role": "assistant", "content": response})
+            st.session_state.show_typing = False
+            st.rerun()
+    
+    # Contact HR card (always visible at bottom)
+    show_contact_hr_card()
+    
+    # Footer
+    st.markdown("""
+        <div class="footer">
+            <p>🕐 Available 24/7 | 🔒 Conversations are private and secure</p>
+            <p>⚠️ For complex issues, please contact HR directly</p>
+            <p style="font-size: 0.75rem; color: #a0aec0; margin-top: 1rem;">
+                Powered by AI | © 2025 HR Department
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
