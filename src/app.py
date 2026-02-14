@@ -17,7 +17,6 @@ st.set_page_config(
     page_title="HR Policy Assistant | 24/7 Support",
     page_icon="💼",
     layout="centered",
-    initial_sidebar_state="expanded",
     initial_sidebar_state="collapsed"
 )
 
@@ -159,39 +158,6 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
     
-    .action-button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        width: 100%;
-    }
-    
-    .action-button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
-    }
-    
-    .secondary-button {
-        background: #edf2f7;
-        color: #4a5568;
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        width: 100%;
-    }
-    
-    .secondary-button:hover {
-        background: #e2e8f0;
-    }
-    
     .typing-indicator {
         display: flex;
         align-items: center;
@@ -219,25 +185,6 @@ st.markdown("""
     @keyframes typing {
         0%, 60%, 100% { transform: translateY(0); }
         30% { transform: translateY(-10px); }
-    }
-    
-    .policy-badge {
-        display: inline-block;
-        background: #edf2f7;
-        color: #4a5568;
-        padding: 0.25rem 0.75rem;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        margin-top: 0.5rem;
-    }
-    
-    .error-card {
-        background: #fed7d7;
-        border: 1px solid #fc8181;
-        color: #c53030;
-        padding: 1rem;
-        border-radius: 12px;
-        margin: 1rem 0;
     }
     
     .contact-hr-card {
@@ -461,18 +408,10 @@ def show_welcome_screen():
             </p>
             <div class="example-questions">
                 <div style="font-weight: 600; margin-bottom: 0.5rem;">💡 Try asking:</div>
-                <div class="example-question" onclick="document.querySelector('input[type=text]').value='How many casual leaves do I have?'; document.querySelector('input[type=text]').focus();">
-                    How many casual leaves do I have?
-                </div>
-                <div class="example-question" onclick="document.querySelector('input[type=text]').value='What is the notice period policy?'; document.querySelector('input[type=text]').focus();">
-                    What is the notice period policy?
-                </div>
-                <div class="example-question" onclick="document.querySelector('input[type=text]').value='How do I apply for medical leave?'; document.querySelector('input[type=text]').focus();">
-                    How do I apply for medical leave?
-                </div>
-                <div class="example-question" onclick="document.querySelector('input[type=text]').value='What are the working hours?'; document.querySelector('input[type=text]').focus();">
-                    What are the working hours?
-                </div>
+                <div class="example-question">How many casual leaves do I have?</div>
+                <div class="example-question">What is the notice period policy?</div>
+                <div class="example-question">How do I apply for medical leave?</div>
+                <div class="example-question">What are the working hours?</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -567,7 +506,7 @@ def show_sidebar():
             "How to claim medical reimbursement?"
         ]
         for faq in faqs:
-            st.markdown(f'<div class="faq-item" onclick="document.querySelector(\'input[type=text]\').value=\'{faq}\';">{faq}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="faq-item">{faq}</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
