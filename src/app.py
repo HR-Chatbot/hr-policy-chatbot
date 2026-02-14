@@ -1,6 +1,6 @@
 """
 HR Policy Chatbot for Spectron
-Features: Auto-policy loading, GitHub integration, Caching, Analytics, Export, Multi-language
+Features: Auto-policy loading, GitHub integration, Analytics, Export
 """
 
 import streamlit as st
@@ -8,11 +8,13 @@ import os
 import json
 import hashlib
 import time
+import requests
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from collections import Counter
+
 import pandas as pd
-import requests
 from google import genai
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -28,29 +30,31 @@ st.set_page_config(
 
 # ============== CONFIGURATION ==============
 class Config:
-    """Configuration settings - modify these without touching core code"""
-    # GitHub Integration (optional - for auto-updating policies)
-    GITHUB_REPO = ""  # e.g., "yourusername/spectron-policies"
-    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # Set in secrets or env
+    """Configuration settings - EDIT THESE VALUES"""
     
-    # Policy Sources (supports multiple)
-    POLICY_SOURCES = {
-        "local": "policies",  # Local folder
-        # "github": "policies",  # Uncomment to enable GitHub
-    }
+    # GitHub Integration (Set these to enable auto-updating policies)
+    GITHUB_REPO = ""           # Format: "username/repo-name" (e.g., "spectronhr/policies")
+    GITHUB_TOKEN = ""          # Leave empty for public repos, required for private repos
     
     # AI Model Settings
-    GEMINI_MODEL = "gemini-2.0-flash"  # Faster, cheaper than pro
-    MAX_CONTEXT_CHUNKS = 5  # Increased from 3 for better answers
+    GEMINI_MODEL = "gemini-2.0-flash"  # Options: "gemini-2.0-flash" (fast/cheap) or "gemini-2.5-pro" (smart/expensive)
+    MAX_CONTEXT_CHUNKS = 5     # How many document sections to use per answer (3-7 recommended)
     
-    # Chat Settings
-    MAX_HISTORY = 50  # Prevent memory issues
+    # Policy Loading
+    AUTO_REFRESH_HOURS = 1     # Check for new policies every X hours
+    
+    # Features
     ENABLE_ANALYTICS = True
     ENABLE_EXPORT = True
+    ENABLE_FEEDBACK = True
     
     # UI Settings
     THEME_COLOR = "#c53030"
     SECONDARY_COLOR = "#1a365d"
+    COMPANY_NAME = "SPECTRON"
+    HR_EMAIL = "hrd@spectron.in"
+    HR_PHONE = "+91 22 4606 6960"
+    HR_EXT = "247"
 
 # ============== CUSTOM CSS ==============
 st.markdown(f"""
@@ -97,6 +101,12 @@ st.markdown(f"""
         margin-top: 1.5rem;
     }}
     
+    .example-questions-title {{
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        text-align: center;
+    }}
+    
     .example-question {{
         display: block;
         background: rgba(255,255,255,0.95);
@@ -126,6 +136,17 @@ st.markdown(f"""
         min-height: 300px;
         max-height: 500px;
         overflow-y: auto;
+    }}
+    
+    .empty-state {{
+        text-align: center;
+        color: #a0aec0;
+        padding: 3rem 1rem;
+    }}
+    
+    .empty-state-icon {{
+        font-size: 4rem;
+        margin-bottom: 1rem;
     }}
     
     .chat-message {{
@@ -175,6 +196,19 @@ st.markdown(f"""
         margin-bottom: 1rem;
     }}
     
+    .stTextInput>div>div>input {{
+        border-radius: 12px;
+        border: 2px solid #e2e8f0;
+        padding: 1rem;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+    }}
+    
+    .stTextInput>div>div>input:focus {{
+        border-color: {Config.THEME_COLOR};
+        box-shadow: 0 0 0 3px rgba(197, 48, 48, 0.1);
+    }}
+    
     .typing-indicator {{
         display: flex;
         align-items: center;
@@ -204,19 +238,31 @@ st.markdown(f"""
         30% {{ transform: translateY(-10px); }}
     }}
     
-    .stats-card {{
-        background: white;
-        padding: 1rem;
-        border-radius: 12px;
+    .contact-hr-card {{
+        background: linear-gradient(135deg, #f6e05e 0%, #d69e2e 100%);
+        color: #744210;
+        padding: 1.5rem;
+        border-radius: 16px;
         text-align: center;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        border-top: 4px solid {Config.THEME_COLOR};
+        margin-top: 1rem;
     }}
     
-    .stats-number {{
-        font-size: 2rem;
-        font-weight: 700;
-        color: {Config.THEME_COLOR};
+    .contact-hr-title {{
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+    }}
+    
+    .contact-detail {{
+        margin: 0.5rem 0;
+        font-size: 1rem;
+    }}
+    
+    .sidebar-content {{
+        background: white;
+        padding: 1.5rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     }}
     
     .faq-item {{
@@ -237,6 +283,21 @@ st.markdown(f"""
     .faq-item:hover {{
         background: #edf2f7;
         transform: translateX(5px);
+    }}
+    
+    .stats-card {{
+        background: white;
+        padding: 1rem;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        border-top: 4px solid {Config.THEME_COLOR};
+    }}
+    
+    .stats-number {{
+        font-size: 2rem;
+        font-weight: 700;
+        color: {Config.THEME_COLOR};
     }}
     
     .policy-badge {{
@@ -267,30 +328,58 @@ st.markdown(f"""
         margin-bottom: 1rem;
     }}
     
-    .feedback-buttons {{
-        display: flex;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-        justify-content: flex-end;
-    }}
-    
-    .feedback-btn {{
-        background: none;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 0.25rem 0.5rem;
+    .back-button {{
+        background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        border: none;
         cursor: pointer;
-        font-size: 0.8rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        margin-bottom: 1rem;
     }}
     
-    .feedback-btn:hover {{
-        background: #f7fafc;
+    .back-button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }}
+    
+    .new-chat-button {{
+        background: linear-gradient(135deg, {Config.THEME_COLOR} 0%, #9b2c2c 100%);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        width: 100%;
+        margin-top: 1rem;
+    }}
+    
+    .new-chat-button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(197, 48, 48, 0.3);
     }}
     
     @media (max-width: 768px) {{
-        .main-header {{ font-size: 1.75rem; }}
-        .chat-message {{ max-width: 95%; font-size: 0.95rem; }}
-        .welcome-card {{ padding: 1.5rem; }}
+        .main-header {{
+            font-size: 1.75rem;
+        }}
+        .chat-message {{
+            max-width: 95%;
+            font-size: 0.95rem;
+        }}
+        .welcome-card {{
+            padding: 1.5rem;
+        }}
+    }}
+    
+    div[data-testid="stButton"] > button {{
+        width: 100%;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -309,8 +398,7 @@ def init_session_state():
         'show_welcome': True,
         'pending_question': None,
         'analytics': {'questions': [], 'feedback': []},
-        'last_policy_check': None,
-        'policy_hash': None
+        'last_policy_check': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -319,117 +407,6 @@ def init_session_state():
 # ============== POLICY MANAGEMENT ==============
 class PolicyManager:
     """Handles loading policies from multiple sources"""
-    
-    @staticmethod
-    def get_file_hash(filepath):
-        """Generate hash for cache invalidation"""
-        try:
-            with open(filepath, 'rb') as f:
-                return hashlib.md5(f.read()).hexdigest()
-        except:
-            return None
-    
-    @staticmethod
-    def download_from_github(repo, path="", token=None):
-        """Download policies from GitHub repository"""
-        if not repo:
-            return []
-        
-        files = []
-        api_url = f"https://api.github.com/repos/{repo}/contents/{path}"
-        headers = {"Authorization": f"token {token}"} if token else {}
-        
-        try:
-            response = requests.get(api_url, headers=headers, timeout=10)
-            response.raise_for_status()
-            contents = response.json()
-            
-            for item in contents:
-                if item['type'] == 'file' and item['name'].endswith('.pdf'):
-                    file_response = requests.get(item['download_url'], headers=headers, timeout=30)
-                    file_response.raise_for_status()
-                    
-                    # Save to temp location
-                    temp_path = Path("temp_policies") / item['name']
-                    temp_path.parent.mkdir(exist_ok=True)
-                    temp_path.write_bytes(file_response.content)
-                    files.append(temp_path)
-                    
-                elif item['type'] == 'dir':
-                    # Recursive download
-                    files.extend(PolicyManager.download_from_github(repo, item['path'], token))
-                    
-        except Exception as e:
-            st.warning(f"GitHub download failed: {str(e)}")
-        
-        return files
-    
-    @staticmethod
-    def load_all_policies():
-        """Load policies from all configured sources"""
-        all_chunks = []
-        chunk_sources = []
-        metadata = {}
-        pdf_files = []
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Load from local
-        if "local" in Config.POLICY_SOURCES:
-            local_dir = Path(Config.POLICY_SOURCES["local"])
-            if local_dir.exists():
-                pdf_files.extend(local_dir.glob("*.pdf"))
-        
-        # Load from GitHub
-        if "github" in Config.POLICY_SOURCES and Config.GITHUB_REPO:
-            status_text.text("📥 Downloading from GitHub...")
-            github_files = PolicyManager.download_from_github(
-                Config.GITHUB_REPO, 
-                Config.POLICY_SOURCES.get("github", ""),
-                Config.GITHUB_TOKEN
-            )
-            pdf_files.extend(github_files)
-        
-        if not pdf_files:
-            progress_bar.empty()
-            status_text.empty()
-            return [], [], {}
-        
-        # Process PDFs
-        for idx, pdf_file in enumerate(pdf_files):
-            status_text.text(f"📄 Processing: {pdf_file.name}...")
-            progress_bar.progress((idx + 1) / len(pdf_files))
-            
-            try:
-                text = PolicyManager.extract_text_from_pdf(pdf_file)
-                if text:
-                    chunks = PolicyManager.chunk_text(text)
-                    file_hash = PolicyManager.get_file_hash(pdf_file)
-                    
-                    metadata[pdf_file.name] = {
-                        'chunks': len(chunks),
-                        'hash': file_hash,
-                        'loaded_at': datetime.now().isoformat(),
-                        'source': 'github' if 'temp_policies' in str(pdf_file) else 'local'
-                    }
-                    
-                    for chunk in chunks:
-                        all_chunks.append(chunk)
-                        chunk_sources.append(pdf_file.name)
-                        
-            except Exception as e:
-                st.error(f"Error processing {pdf_file.name}: {str(e)}")
-        
-        # Cleanup temp files
-        if Path("temp_policies").exists():
-            import shutil
-            shutil.rmtree("temp_policies")
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        return all_chunks, chunk_sources, metadata
     
     @staticmethod
     def extract_text_from_pdf(pdf_path):
@@ -463,7 +440,6 @@ class PolicyManager:
             
             if current_size + sentence_size > chunk_size and current_chunk:
                 chunks.append('. '.join(current_chunk) + '.')
-                # Keep overlap
                 overlap_size = 0
                 overlap_chunk = []
                 for s in reversed(current_chunk):
@@ -481,6 +457,112 @@ class PolicyManager:
             chunks.append('. '.join(current_chunk) + '.')
         
         return [c for c in chunks if len(c) > 100]
+    
+    @staticmethod
+    def _download_from_github():
+        """Download PDFs from GitHub repository"""
+        if not Config.GITHUB_REPO:
+            return []
+        
+        repo_parts = Config.GITHUB_REPO.split('/')
+        if len(repo_parts) != 2:
+            raise ValueError("GITHUB_REPO must be format: username/repo-name")
+        
+        owner, repo = repo_parts
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/"
+        
+        headers = {}
+        if Config.GITHUB_TOKEN:
+            headers["Authorization"] = f"token {Config.GITHUB_TOKEN}"
+        
+        response = requests.get(api_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        contents = response.json()
+        
+        downloaded_files = []
+        temp_dir = Path("temp_github")
+        temp_dir.mkdir(exist_ok=True)
+        
+        for item in contents:
+            if item['type'] == 'file' and item['name'].lower().endswith('.pdf'):
+                file_url = item['download_url']
+                file_response = requests.get(file_url, headers=headers, timeout=30)
+                file_response.raise_for_status()
+                
+                file_path = temp_dir / item['name']
+                file_path.write_bytes(file_response.content)
+                downloaded_files.append(file_path)
+        
+        return downloaded_files
+    
+    @staticmethod
+    def load_all_policies():
+        """Load policies from local folder and/or GitHub"""
+        all_chunks = []
+        chunk_sources = []
+        metadata = {}
+        pdf_files = []
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Load from local
+        local_dir = Path("policies")
+        if local_dir.exists():
+            local_pdfs = list(local_dir.glob("*.pdf"))
+            pdf_files.extend(local_pdfs)
+            status_text.text(f"📁 Found {len(local_pdfs)} local policies")
+        
+        # Load from GitHub
+        if Config.GITHUB_REPO:
+            status_text.text("🌐 Downloading from GitHub...")
+            try:
+                github_pdfs = PolicyManager._download_from_github()
+                pdf_files.extend(github_pdfs)
+                status_text.text(f"✅ Downloaded {len(github_pdfs)} policies from GitHub")
+            except Exception as e:
+                st.warning(f"⚠️ GitHub download failed: {str(e)}")
+        
+        if not pdf_files:
+            progress_bar.empty()
+            status_text.empty()
+            st.error("❌ No policies found! Add PDFs to 'policies' folder or set up GitHub.")
+            return [], [], {}
+        
+        # Process PDFs
+        for idx, pdf_file in enumerate(pdf_files):
+            status_text.text(f"📄 Reading: {pdf_file.name}...")
+            progress_bar.progress((idx + 1) / len(pdf_files))
+            
+            try:
+                text = PolicyManager.extract_text_from_pdf(pdf_file)
+                if text:
+                    chunks = PolicyManager.chunk_text(text)
+                    metadata[pdf_file.name] = {
+                        'chunks': len(chunks),
+                        'source': 'GitHub' if 'temp_github' in str(pdf_file) else 'Local',
+                        'loaded_at': datetime.now().strftime("%Y-%m-%d %H:%M")
+                    }
+                    
+                    for chunk in chunks:
+                        all_chunks.append(chunk)
+                        chunk_sources.append(pdf_file.name)
+                        
+            except Exception as e:
+                st.error(f"❌ Error reading {pdf_file.name}: {str(e)}")
+        
+        # Cleanup
+        temp_dir = Path("temp_github")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        if metadata:
+            st.success(f"✅ Loaded {len(metadata)} documents ({len(all_chunks)} sections)")
+        
+        return all_chunks, chunk_sources, metadata
 
 # ============== VECTOR STORE ==============
 class VectorStore:
@@ -491,9 +573,9 @@ class VectorStore:
         if not chunks:
             return None, None
         vectorizer = TfidfVectorizer(
-            max_features=10000,  # Increased for better coverage
+            max_features=10000,
             stop_words='english',
-            ngram_range=(1, 3),  # Include trigrams
+            ngram_range=(1, 3),
             min_df=1,
             max_df=0.95
         )
@@ -504,17 +586,16 @@ class VectorStore:
     def search(query, vectorizer, tfidf_matrix, chunks, sources, top_k=5):
         """Enhanced search with relevance scoring"""
         if vectorizer is None or not chunks:
-            return [], [], []
+            return []
         
         query_vec = vectorizer.transform([query])
         similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
         
-        # Get top results
         top_indices = similarities.argsort()[-top_k:][::-1]
         
         results = []
         for idx in top_indices:
-            if similarities[idx] > 0.1:  # Relevance threshold
+            if similarities[idx] > 0.1:
                 results.append({
                     'chunk': chunks[idx],
                     'source': sources[idx],
@@ -546,7 +627,6 @@ class AIResponder:
         if not self.client:
             return self._fallback_response()
         
-        # Build context from search results
         context_text = ""
         sources_used = []
         
@@ -555,9 +635,8 @@ class AIResponder:
             if result['source'] not in sources_used:
                 sources_used.append(result['source'])
         
-        # Build conversation history
         history_text = ""
-        for msg in chat_history[-5:]:  # Last 5 messages
+        for msg in chat_history[-5:]:
             role = "Employee" if msg['role'] == 'user' else "HR Assistant"
             history_text += f"{role}: {msg['content']}\n"
         
@@ -573,7 +652,7 @@ CURRENT QUESTION: {query}
 
 INSTRUCTIONS:
 1. Answer using ONLY the provided policy documents above
-2. If answer isn't in documents, say: "I don't have specific information about that in our current policies. Please contact HR at hrd@spectron.in or extn 247."
+2. If answer isn't in documents, say: "I don't have specific information about that in our current policies. Please contact HR at {Config.HR_EMAIL} or extn {Config.HR_EXT}."
 3. Be concise, professional, and helpful
 4. Use bullet points for lists
 5. Cite document names when referencing specific policies
@@ -588,7 +667,6 @@ Provide a helpful response:"""
                 config={'temperature': 0.3, 'max_output_tokens': 800}
             )
             
-            # Add source attribution
             answer = response.text
             if sources_used and "contact HR" not in answer.lower():
                 answer += f"\n\n📄 Sources: {', '.join(sources_used[:2])}"
@@ -603,11 +681,11 @@ Provide a helpful response:"""
     
     def _fallback_response(self):
         """Fallback when AI is unavailable"""
-        return """⚠️ AI service temporarily unavailable.
+        return f"""⚠️ AI service temporarily unavailable.
 
 Please contact HR directly:
-📧 hrd@spectron.in
-📞 +91 22 4606 6960 Ext: 247
+📧 {Config.HR_EMAIL}
+📞 {Config.HR_PHONE} Ext: {Config.HR_EXT}
 🕐 Mon-Sat, 10 AM - 6 PM"""
 
 # ============== ANALYTICS ==============
@@ -616,7 +694,6 @@ class Analytics:
     
     @staticmethod
     def log_question(question, response_time, has_answer):
-        """Log question for analytics"""
         if not Config.ENABLE_ANALYTICS:
             return
         
@@ -629,7 +706,6 @@ class Analytics:
     
     @staticmethod
     def log_feedback(message_idx, feedback_type):
-        """Log thumbs up/down feedback"""
         if not Config.ENABLE_ANALYTICS:
             return
         
@@ -641,7 +717,6 @@ class Analytics:
     
     @staticmethod
     def export_chat():
-        """Export chat history as JSON"""
         if not st.session_state.chat_history:
             return None
         
@@ -654,7 +729,6 @@ class Analytics:
     
     @staticmethod
     def get_stats():
-        """Get usage statistics"""
         questions = st.session_state.analytics['questions']
         if not questions:
             return {}
@@ -688,7 +762,7 @@ def show_text_logo():
     st.markdown(f"""
         <div style="text-align: center; margin-bottom: 1rem;">
             <div style="font-size: 2.5rem; font-weight: 800; color: {Config.THEME_COLOR}; letter-spacing: 3px; text-transform: uppercase;">
-                SPECTRON
+                {Config.COMPANY_NAME}
             </div>
             <div style="color: #718096; font-size: 0.9rem;">HR Policy Assistant</div>
         </div>
@@ -698,13 +772,13 @@ def show_welcome_screen():
     """Welcome screen with input options"""
     show_logo()
     
-    # Check for new policies
+    # Check for updates
     if st.session_state.last_policy_check:
         last_check = datetime.fromisoformat(st.session_state.last_policy_check)
-        if datetime.now() - last_check > timedelta(hours=1):
+        if datetime.now() - last_check > timedelta(hours=Config.AUTO_REFRESH_HOURS):
             st.info("🔄 Policies were updated recently. Refresh to load latest.")
     
-    st.markdown("""
+    st.markdown(f"""
         <div class="welcome-card">
             <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
             <div class="welcome-text">
@@ -757,21 +831,19 @@ def show_welcome_screen():
     if st.session_state.policy_metadata:
         with st.expander("📚 Loaded Policies"):
             for name, meta in st.session_state.policy_metadata.items():
-                st.markdown(f"""
-                    <span class="policy-badge">{name}</span>
-                    <small>({meta['chunks']} sections)</small>
-                """, unsafe_allow_html=True)
+                source_icon = "🌐" if meta['source'] == 'GitHub' else "📁"
+                st.markdown(f"{source_icon} **{name}** - {meta['chunks']} sections ({meta['source']})")
 
 def show_chat_interface():
     """Main chat interface"""
-    # Back button
-    col1, col2 = st.columns([1, 4])
+    # Header buttons
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
-        if st.button("← Back", use_container_width=True):
+        if st.button("← Back", key="back_btn", use_container_width=True):
             st.session_state.show_welcome = True
             st.rerun()
-    with col2:
-        if st.button("🔄 New Chat", use_container_width=True):
+    with col3:
+        if st.button("🔄 New Chat", key="new_chat_btn", use_container_width=True):
             st.session_state.chat_history = []
             st.rerun()
     
@@ -797,11 +869,11 @@ def show_chat_interface():
             else:
                 content = message['content']
                 if content == "API_QUOTA_EXHAUSTED":
-                    content = """⚠️ Service temporarily unavailable due to high demand.
+                    content = f"""⚠️ Service temporarily unavailable due to high demand.
 
 Please contact HR directly:
-📧 hrd@spectron.in
-📞 +91 22 4606 6960 Ext: 247"""
+📧 {Config.HR_EMAIL}
+📞 {Config.HR_PHONE} Ext: {Config.HR_EXT}"""
                 
                 st.markdown(f"""
                     <div class="chat-message bot-message">
@@ -811,13 +883,13 @@ Please contact HR directly:
                 """, unsafe_allow_html=True)
                 
                 # Feedback buttons
-                if Config.ENABLE_ANALYTICS and idx > 0:
-                    cols = st.columns([6, 1, 1])
-                    with cols[1]:
+                if Config.ENABLE_FEEDBACK and idx > 0:
+                    feedback_cols = st.columns([6, 1, 1])
+                    with feedback_cols[1]:
                         if st.button("👍", key=f"up_{idx}", help="Helpful"):
                             Analytics.log_feedback(idx, 'positive')
                             st.toast("Thanks for your feedback!")
-                    with cols[2]:
+                    with feedback_cols[2]:
                         if st.button("👎", key=f"down_{idx}", help="Not helpful"):
                             Analytics.log_feedback(idx, 'negative')
                             st.toast("Thanks for your feedback!")
@@ -844,10 +916,6 @@ def process_message(user_input):
     
     # Add user message
     st.session_state.chat_history.append({"role": "user", "content": user_input})
-    
-    # Limit history
-    if len(st.session_state.chat_history) > Config.MAX_HISTORY * 2:
-        st.session_state.chat_history = st.session_state.chat_history[-Config.MAX_HISTORY * 2:]
     
     # Search context
     results = VectorStore.search(
@@ -879,17 +947,24 @@ def process_message(user_input):
 def show_sidebar():
     """Sidebar with stats and tools"""
     with st.sidebar:
-        st.markdown("""
+        st.markdown(f"""
             <div style="text-align: center; margin-bottom: 1.5rem;">
-                <div style="font-size: 1.5rem; font-weight: 700; color: #c53030;">SPECTRON</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: {Config.THEME_COLOR};">{Config.COMPANY_NAME}</div>
                 <div style="font-size: 0.8rem; color: #718096;">HR Assistant</div>
             </div>
         """, unsafe_allow_html=True)
+        
+        # New Chat
+        if st.button("🔄 New Chat", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.show_welcome = True
+            st.rerun()
         
         # Stats
         if Config.ENABLE_ANALYTICS:
             stats = Analytics.get_stats()
             if stats:
+                st.markdown("---")
                 st.markdown("### 📊 Today's Activity")
                 cols = st.columns(2)
                 cols[0].metric("Questions", stats.get('today_questions', 0))
@@ -910,11 +985,11 @@ def show_sidebar():
         
         # Contact
         st.markdown("---")
-        st.markdown("""
+        st.markdown(f"""
             ### 📞 HR Contact
-            **hrd@spectron.in**  
-            **+91 22 4606 6960**  
-            Ext: 247  
+            **{Config.HR_EMAIL}**  
+            **{Config.HR_PHONE}**  
+            Ext: {Config.HR_EXT}  
             Mon-Sat, 10 AM - 6 PM
         """)
         
@@ -927,7 +1002,8 @@ def show_sidebar():
             if st.session_state.policy_metadata:
                 st.markdown("**Loaded Documents:**")
                 for name, meta in st.session_state.policy_metadata.items():
-                    st.markdown(f"- {name} ({meta['chunks']} chunks)")
+                    icon = "🌐" if meta['source'] == 'GitHub' else "📁"
+                    st.markdown(f"{icon} {name} ({meta['chunks']} chunks)")
 
 # ============== MAIN ==============
 def main():
