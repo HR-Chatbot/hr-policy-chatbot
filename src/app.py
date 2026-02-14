@@ -1,11 +1,10 @@
 """
 HR Policy Chatbot for Spectron
-Features: Professional UI, Mobile-friendly, Better UX, Error handling
+Features: Professional UI, Mobile-friendly, Better UX, Error handling, Navigation
 """
 
 import streamlit as st
 import os
-import base64
 from pathlib import Path
 from google import genai
 from PyPDF2 import PdfReader
@@ -37,31 +36,12 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    .company-name {
-        font-size: 1.5rem;
-        color: #c53030;
-        text-align: center;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        letter-spacing: 2px;
-    }
-    
     .sub-header {
         font-size: 1.1rem;
         color: #4a5568;
         text-align: center;
         margin-bottom: 2rem;
         font-weight: 400;
-    }
-    
-    .logo-container {
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    
-    .logo-container img {
-        max-width: 150px;
-        height: auto;
     }
     
     .welcome-card {
@@ -111,6 +91,9 @@ st.markdown("""
         cursor: pointer;
         transition: all 0.3s ease;
         text-align: center;
+        border: none;
+        width: 100%;
+        text-decoration: none;
     }
     
     .example-question:hover {
@@ -264,6 +247,11 @@ st.markdown("""
         cursor: pointer;
         transition: all 0.3s ease;
         border-left: 4px solid #c53030;
+        text-align: left;
+        width: 100%;
+        border: none;
+        color: #2d3748;
+        font-size: 0.95rem;
     }
     
     .faq-item:hover {
@@ -295,24 +283,51 @@ st.markdown("""
         border-top: 1px solid #e2e8f0;
     }
     
-    .clear-chat-btn {
-        background: #edf2f7 !important;
-        color: #4a5568 !important;
-        border: none !important;
+    .back-button {
+        background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        text-decoration: none;
     }
     
-    .contact-btn {
-        background: #f7fafc !important;
-        color: #744210 !important;
-        border: 1px solid #d69e2e !important;
+    .back-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+    }
+    
+    .new-chat-button {
+        background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        width: 100%;
+        margin-top: 1rem;
+    }
+    
+    .new-chat-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(197, 48, 48, 0.3);
     }
     
     @media (max-width: 768px) {
         .main-header {
             font-size: 1.75rem;
-        }
-        .company-name {
-            font-size: 1.25rem;
         }
         .chat-message {
             max-width: 95%;
@@ -321,6 +336,10 @@ st.markdown("""
         .welcome-card {
             padding: 1.5rem;
         }
+    }
+    
+    div[data-testid="stButton"] > button {
+        width: 100%;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -336,7 +355,8 @@ def init_session_state():
         'policies_loaded': False,
         'genai_client': None,
         'show_typing': False,
-        'show_welcome': True
+        'show_welcome': True,
+        'pending_question': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -468,21 +488,82 @@ Provide a helpful response:"""
             return "API_QUOTA_EXHAUSTED"
         return f"Error processing request: {error_msg}"
 
+# ============== CHAT PROCESSING ==============
+def process_user_input(user_input):
+    """Process user input and generate response"""
+    if not user_input.strip():
+        return
+    
+    # Add user message
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+    st.session_state.show_welcome = False
+    
+    # Show typing indicator
+    st.session_state.show_typing = True
+    
+    # Get relevant context
+    relevant_chunks, scores = find_relevant_chunks(user_input)
+    context = "\n\n".join(relevant_chunks) if relevant_chunks else "No specific policy context found."
+    
+    # Generate response
+    if st.session_state.genai_client:
+        response = get_gemini_response(
+            user_input, 
+            context, 
+            st.session_state.chat_history[:-1],
+            st.session_state.genai_client
+        )
+    else:
+        response = "⚠️ AI service not configured. Please contact HR directly at hrd@spectron.in"
+    
+    # Add bot response
+    st.session_state.chat_history.append({"role": "assistant", "content": response})
+    st.session_state.show_typing = False
+
 # ============== UI COMPONENTS ==============
 def show_logo():
-    # Display company name as text logo since we can't easily load external images in Streamlit Cloud
+    """Display logo at the top"""
+    try:
+        logo_path = Path("Logo.jpg")
+        if logo_path.exists():
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image(str(logo_path), width=250)
+        else:
+            show_text_logo()
+    except:
+        show_text_logo()
+
+def show_text_logo():
+    """Display text-based logo"""
     st.markdown("""
         <div style="text-align: center; margin-bottom: 1rem;">
             <div style="font-size: 2.5rem; font-weight: 800; color: #c53030; letter-spacing: 3px; text-transform: uppercase;">
                 SPECTRON
             </div>
-            <div style="font-size: 0.9rem; color: #718096; letter-spacing: 1px;">
-                HR POLICY ASSISTANT
-            </div>
         </div>
     """, unsafe_allow_html=True)
 
+def show_back_button():
+    """Display back button to return to welcome screen"""
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("← Back", key="back_button", use_container_width=True):
+            st.session_state.show_welcome = True
+            st.session_state.chat_history = []
+            st.session_state.pending_question = None
+            st.rerun()
+
+def show_new_chat_button():
+    """Display new chat button in sidebar"""
+    if st.button("🔄 New Chat", key="new_chat", use_container_width=True):
+        st.session_state.chat_history = []
+        st.session_state.show_welcome = True
+        st.session_state.pending_question = None
+        st.rerun()
+
 def show_welcome_screen():
+    """Display welcome screen with clickable example questions"""
     show_logo()
     
     st.markdown("""
@@ -494,16 +575,27 @@ def show_welcome_screen():
             </div>
             <div class="example-questions">
                 <div class="example-questions-title">💡 Try asking:</div>
-                <div class="example-question">How many casual leaves do I have per year?</div>
-                <div class="example-question">What is the notice period policy?</div>
-                <div class="example-question">How do I apply for medical leave?</div>
-                <div class="example-question">What are the company working hours?</div>
-                <div class="example-question">How to claim medical reimbursement?</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Clickable example questions
+    example_questions = [
+        "How many casual leaves do I have per year?",
+        "What is the notice period policy?",
+        "How do I apply for medical leave?",
+        "What are the company working hours?",
+        "How to claim medical reimbursement?"
+    ]
+    
+    for i, question in enumerate(example_questions):
+        if st.button(question, key=f"example_{i}", use_container_width=True):
+            st.session_state.pending_question = question
+            st.session_state.show_welcome = False
+            st.rerun()
 
 def display_chat_history():
+    """Display chat messages"""
     if not st.session_state.chat_history:
         st.markdown("""
             <div class="chat-container">
@@ -554,6 +646,7 @@ def display_chat_history():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_typing_indicator():
+    """Display typing animation"""
     st.markdown("""
         <div class="typing-indicator">
             <div class="typing-dot"></div>
@@ -564,6 +657,7 @@ def show_typing_indicator():
     """, unsafe_allow_html=True)
 
 def show_contact_hr_card():
+    """Display contact information card"""
     st.markdown("""
         <div class="contact-hr-card">
             <div class="contact-hr-title">📞 Need Personal Assistance?</div>
@@ -584,12 +678,42 @@ def show_contact_hr_card():
         </div>
     """, unsafe_allow_html=True)
 
+def show_chat_interface():
+    """Display chat interface with input and messages"""
+    show_back_button()
+    
+    # Display chat history
+    display_chat_history()
+    
+    # Show typing indicator if processing
+    if st.session_state.show_typing:
+        show_typing_indicator()
+    
+    # Chat input
+    st.markdown('<div class="input-container">', unsafe_allow_html=True)
+    user_input = st.chat_input("Type your HR question here...", key="chat_input")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    if user_input:
+        process_user_input(user_input)
+        st.rerun()
+    
+    # Process pending question from example/FAQ click
+    if st.session_state.pending_question:
+        question = st.session_state.pending_question
+        st.session_state.pending_question = None
+        process_user_input(question)
+        st.rerun()
+    
+    show_contact_hr_card()
+
 # ============== SIDEBAR ==============
 def show_sidebar():
+    """Display sidebar with stats, FAQs, and contact info"""
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
         
-        # Company branding in sidebar
+        # Company branding
         st.markdown("""
             <div style="text-align: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e2e8f0;">
                 <div style="font-size: 1.5rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">
@@ -601,6 +725,12 @@ def show_sidebar():
             </div>
         """, unsafe_allow_html=True)
         
+        # New Chat Button
+        show_new_chat_button()
+        
+        st.markdown("---")
+        
+        # Quick Stats
         st.markdown("### 📊 Quick Stats")
         col1, col2 = st.columns(2)
         with col1:
@@ -620,6 +750,7 @@ def show_sidebar():
         
         st.markdown("---")
         
+        # Frequently Asked Questions (Clickable)
         st.markdown("### ❓ Frequently Asked")
         faqs = [
             "How do I apply for leave?",
@@ -628,139 +759,63 @@ def show_sidebar():
             "What are company working hours?",
             "How to claim medical reimbursement?"
         ]
-        for faq in faqs:
-            st.markdown(f'<div class="faq-item">{faq}</div>', unsafe_allow_html=True)
+        
+        for i, faq in enumerate(faqs):
+            if st.button(faq, key=f"faq_{i}", use_container_width=True):
+                st.session_state.pending_question = faq
+                st.session_state.show_welcome = False
+                st.rerun()
         
         st.markdown("---")
         
+        # Contact HR
         st.markdown("### 📞 Contact HR")
         st.markdown("""
-            <div style="background: #f7fafc; padding: 1rem; border-radius: 12px; font-size: 0.9rem;">
-                <strong style="color: #c53030;">Spectron HR</strong><br>
-                📧 hrd@spectron.in<br>
-                📞 +91 22 4606 6960<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;EXTN: 247<br>
-                🕐 Mon-Sat: 10 AM - 6 PM
+            <div style="background: #f7fafc; padding: 1rem; border-radius: 12px; font-size: 0.9rem; line-height: 1.6;">
+                <div style="margin-bottom: 0.5rem;"><strong>HR Department</strong></div>
+                <div>📧 hrd@spectron.in</div>
+                <div>📞 +91 22 4606 6960</div>
+                <div>Ext: 247</div>
+                <div style="margin-top: 0.5rem; color: #718096; font-size: 0.8rem;">
+                    Mon - Sat<br>10 AM to 6 PM
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Footer
+        st.markdown("""
+            <div style="text-align: center; color: #a0aec0; font-size: 0.75rem; margin-top: 1rem;">
+                © 2024 Spectron<br>All rights reserved
             </div>
         """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ============== MAIN APP ==============
+# ============== MAIN APPLICATION ==============
 def main():
+    """Main application entry point"""
     init_session_state()
     
-    # Header with logo
-    show_logo()
-    st.markdown('<div class="sub-header">Your 24/7 AI-powered HR companion</div>', unsafe_allow_html=True)
-    
-    # Setup Gemini
-    if st.session_state.genai_client is None:
-        st.session_state.genai_client = setup_gemini()
-    
-    # Load policies
+    # Load policies on first run
     if not st.session_state.policies_loaded:
-        with st.spinner("📚 Loading HR policies..."):
-            chunks, sources, pdf_files = load_policies()
-            if chunks:
-                st.session_state.policy_chunks = chunks
-                st.session_state.policy_sources = sources
-                st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
-                st.session_state.policies_loaded = True
-                st.success(f"✅ Loaded {len(pdf_files)} policy documents with {len(chunks)} sections")
-            else:
-                st.error("❌ No policies found. Please upload PDF files to the policies folder.")
-                return
+        with st.spinner("Loading HR policies..."):
+            chunks, sources, files = load_policies()
+            st.session_state.policy_chunks = chunks
+            st.session_state.policy_sources = sources
+            st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
+            st.session_state.genai_client = setup_gemini()
+            st.session_state.policies_loaded = True
     
     # Show sidebar
     show_sidebar()
     
-    # Show welcome screen (always show if no chat or if explicitly enabled)
-    if st.session_state.show_welcome or not st.session_state.chat_history:
+    # Main content area
+    if st.session_state.show_welcome:
         show_welcome_screen()
-        st.session_state.show_welcome = False
-    
-    # Chat display
-    display_chat_history()
-    
-    if st.session_state.show_typing:
-        show_typing_indicator()
-    
-    # Input area
-    st.markdown('<div class="input-container">', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([4, 1])
-    
-    with col1:
-        query = st.text_input(
-            "Ask your question...",
-            placeholder="E.g., How many casual leaves do I have?",
-            key="user_input",
-            label_visibility="collapsed"
-        )
-    
-    with col2:
-        submit = st.button("🚀 Ask", use_container_width=True, type="primary")
-    
-    col3, col4, col5 = st.columns([1, 1, 2])
-    with col3:
-        if st.button("🔄 Clear Chat", use_container_width=True, key="clear_btn"):
-            st.session_state.chat_history = []
-            st.session_state.show_welcome = True
-            st.rerun()
-    with col4:
-        if st.button("📞 Contact HR", use_container_width=True, key="contact_btn"):
-            st.markdown('<div id="contact-section"></div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Handle submit
-    if submit and query:
-        # Add user message
-        st.session_state.chat_history.append({"role": "user", "content": query})
-        st.session_state.show_typing = True
-        st.rerun()
-    
-    # Process AI response (after rerun)
-    if st.session_state.show_typing and st.session_state.chat_history:
-        last_msg = st.session_state.chat_history[-1]
-        if last_msg['role'] == 'user':
-            # Find relevant chunks
-            relevant_chunks, scores = find_relevant_chunks(last_msg['content'])
-            context = "\n\n".join([f"{chunk}" for chunk, score in zip(relevant_chunks, scores) if score > 0.1])
-            
-            if not context:
-                context = "No specific policy information found in documents."
-            
-            # Get AI response
-            if st.session_state.genai_client:
-                response = get_gemini_response(
-                    last_msg['content'], 
-                    context, 
-                    st.session_state.chat_history[:-1], 
-                    st.session_state.genai_client
-                )
-            else:
-                response = "API not configured. Please contact HR directly at hrd@spectron.in or call +91 22 4606 6960 EXTN: 247"
-            
-            # Add bot response
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-            st.session_state.show_typing = False
-            st.rerun()
-    
-    # Contact HR card (always visible at bottom)
-    show_contact_hr_card()
-    
-    # Footer
-    st.markdown("""
-        <div class="footer">
-            <p>🕐 Available 24/7 | 🔒 Conversations are private and secure</p>
-            <p>⚠️ For complex issues, please contact HR directly at hrd@spectron.in</p>
-            <p style="font-size: 0.75rem; color: #a0aec0; margin-top: 1rem;">
-                © 2025 Spectron. All rights reserved.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    else:
+        show_chat_interface()
 
 if __name__ == "__main__":
     main()
