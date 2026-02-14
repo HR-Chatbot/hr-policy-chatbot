@@ -1,6 +1,6 @@
 """
 HR Policy Chatbot for Indian Companies
-Uses google-genai package with gemini-2.5-flash model
+Uses google-genai package with gemini-2.5-pro model
 """
 
 import streamlit as st
@@ -161,9 +161,9 @@ QUESTION: {query}
 
 Provide a helpful, professional response based on the context. If you do not know the answer, say 'Please contact HR directly for assistance.'"""
         
-        # Use gemini-2.5-flash model (you have 20 requests/day available)
+        # Use gemini-2.5-pro model (you have 1.5K requests/day available)
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             contents=prompt
         )
         return response.text
