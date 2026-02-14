@@ -1,11 +1,11 @@
 """
-HR Policy Chatbot for Indian Companies - Enhanced Version
+HR Policy Chatbot for Spectron
 Features: Professional UI, Mobile-friendly, Better UX, Error handling
 """
 
 import streamlit as st
 import os
-import time
+import base64
 from pathlib import Path
 from google import genai
 from PyPDF2 import PdfReader
@@ -14,7 +14,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # ============== PAGE CONFIG ==============
 st.set_page_config(
-    page_title="HR Policy Assistant | 24/7 Support",
+    page_title="Spectron HR Assistant | 24/7 Support",
     page_icon="💼",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -30,62 +30,92 @@ st.markdown("""
     }
     
     .main-header {
-        font-size: 2.8rem;
+        font-size: 2.5rem;
         font-weight: 700;
         color: #1a365d;
         text-align: center;
         margin-bottom: 0.5rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+    }
+    
+    .company-name {
+        font-size: 1.5rem;
+        color: #c53030;
+        text-align: center;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        letter-spacing: 2px;
     }
     
     .sub-header {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         color: #4a5568;
         text-align: center;
         margin-bottom: 2rem;
         font-weight: 400;
     }
     
+    .logo-container {
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    
+    .logo-container img {
+        max-width: 150px;
+        height: auto;
+    }
+    
     .welcome-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
         padding: 2rem;
         border-radius: 16px;
         color: white;
         margin-bottom: 2rem;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
     }
     
     .welcome-title {
         font-size: 1.5rem;
         font-weight: 600;
         margin-bottom: 1rem;
+        text-align: center;
+    }
+    
+    .welcome-text {
+        text-align: center;
+        font-size: 1.05rem;
+        line-height: 1.6;
+        opacity: 0.95;
     }
     
     .example-questions {
         background: rgba(255,255,255,0.15);
-        padding: 1rem;
+        padding: 1.25rem;
         border-radius: 12px;
-        margin-top: 1rem;
+        margin-top: 1.5rem;
+    }
+    
+    .example-questions-title {
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        text-align: center;
     }
     
     .example-question {
-        display: inline-block;
-        background: rgba(255,255,255,0.9);
-        color: #4a5568;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        margin: 0.25rem;
-        font-size: 0.9rem;
+        display: block;
+        background: rgba(255,255,255,0.95);
+        color: #2d3748;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        font-size: 0.95rem;
         cursor: pointer;
         transition: all 0.3s ease;
+        text-align: center;
     }
     
     .example-question:hover {
         background: white;
-        transform: translateY(-2px);
+        transform: translateX(5px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
@@ -94,9 +124,20 @@ st.markdown("""
         border-radius: 16px;
         padding: 1.5rem;
         margin-bottom: 1rem;
-        min-height: 400px;
-        max-height: 600px;
+        min-height: 300px;
+        max-height: 500px;
         overflow-y: auto;
+    }
+    
+    .empty-state {
+        text-align: center;
+        color: #a0aec0;
+        padding: 3rem 1rem;
+    }
+    
+    .empty-state-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
     }
     
     .chat-message {
@@ -114,11 +155,11 @@ st.markdown("""
     }
     
     .user-message {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
         color: white;
         margin-left: auto;
         border-bottom-right-radius: 4px;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        box-shadow: 0 4px 15px rgba(197, 48, 48, 0.3);
     }
     
     .bot-message {
@@ -143,6 +184,7 @@ st.markdown("""
         border-radius: 16px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.08);
         border: 1px solid #e2e8f0;
+        margin-bottom: 1rem;
     }
     
     .stTextInput>div>div>input {
@@ -154,8 +196,8 @@ st.markdown("""
     }
     
     .stTextInput>div>div>input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        border-color: #c53030;
+        box-shadow: 0 0 0 3px rgba(197, 48, 48, 0.1);
     }
     
     .typing-indicator {
@@ -174,7 +216,7 @@ st.markdown("""
     .typing-dot {
         width: 8px;
         height: 8px;
-        background: #667eea;
+        background: #c53030;
         border-radius: 50%;
         animation: typing 1.4s infinite;
     }
@@ -196,6 +238,17 @@ st.markdown("""
         margin-top: 1rem;
     }
     
+    .contact-hr-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+    }
+    
+    .contact-detail {
+        margin: 0.5rem 0;
+        font-size: 1rem;
+    }
+    
     .sidebar-content {
         background: white;
         padding: 1.5rem;
@@ -210,6 +263,7 @@ st.markdown("""
         margin-bottom: 0.75rem;
         cursor: pointer;
         transition: all 0.3s ease;
+        border-left: 4px solid #c53030;
     }
     
     .faq-item:hover {
@@ -223,12 +277,13 @@ st.markdown("""
         border-radius: 12px;
         text-align: center;
         box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        border-top: 4px solid #c53030;
     }
     
     .stats-number {
         font-size: 2rem;
         font-weight: 700;
-        color: #667eea;
+        color: #c53030;
     }
     
     .footer {
@@ -240,9 +295,24 @@ st.markdown("""
         border-top: 1px solid #e2e8f0;
     }
     
+    .clear-chat-btn {
+        background: #edf2f7 !important;
+        color: #4a5568 !important;
+        border: none !important;
+    }
+    
+    .contact-btn {
+        background: #f7fafc !important;
+        color: #744210 !important;
+        border: 1px solid #d69e2e !important;
+    }
+    
     @media (max-width: 768px) {
         .main-header {
-            font-size: 2rem;
+            font-size: 1.75rem;
+        }
+        .company-name {
+            font-size: 1.25rem;
         }
         .chat-message {
             max-width: 95%;
@@ -265,7 +335,8 @@ def init_session_state():
         'tfidf_matrix': None,
         'policies_loaded': False,
         'genai_client': None,
-        'show_typing': False
+        'show_typing': False,
+        'show_welcome': True
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -365,7 +436,7 @@ def get_gemini_response(query, context, chat_history, client):
             role = "👤 Employee" if msg['role'] == 'user' else "🤖 HR Assistant"
             history_text += f"{role}: {msg['content']}\n"
         
-        prompt = f"""You are a professional HR Policy Assistant for an Indian company. Provide helpful, accurate responses based on company policies.
+        prompt = f"""You are a professional HR Policy Assistant for Spectron company. Provide helpful, accurate responses based on company policies.
 
 CONTEXT FROM COMPANY POLICY DOCUMENTS:
 {context}
@@ -398,25 +469,58 @@ Provide a helpful response:"""
         return f"Error processing request: {error_msg}"
 
 # ============== UI COMPONENTS ==============
+def show_logo():
+    # Display company name as text logo since we can't easily load external images in Streamlit Cloud
+    st.markdown("""
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <div style="font-size: 2.5rem; font-weight: 800; color: #c53030; letter-spacing: 3px; text-transform: uppercase;">
+                SPECTRON
+            </div>
+            <div style="font-size: 0.9rem; color: #718096; letter-spacing: 1px;">
+                HR POLICY ASSISTANT
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
 def show_welcome_screen():
+    show_logo()
+    
     st.markdown("""
         <div class="welcome-card">
             <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
-            <p style="font-size: 1.1rem; opacity: 0.95;">
+            <div class="welcome-text">
                 I'm here to help you with HR policies, leave applications, benefits, and more. 
-                Available 24/7 for your convenience!
-            </p>
+                Get instant answers to your HR questions, available 24/7 for your convenience!
+            </div>
             <div class="example-questions">
-                <div style="font-weight: 600; margin-bottom: 0.5rem;">💡 Try asking:</div>
-                <div class="example-question">How many casual leaves do I have?</div>
+                <div class="example-questions-title">💡 Try asking:</div>
+                <div class="example-question">How many casual leaves do I have per year?</div>
                 <div class="example-question">What is the notice period policy?</div>
                 <div class="example-question">How do I apply for medical leave?</div>
-                <div class="example-question">What are the working hours?</div>
+                <div class="example-question">What are the company working hours?</div>
+                <div class="example-question">How to claim medical reimbursement?</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
 def display_chat_history():
+    if not st.session_state.chat_history:
+        st.markdown("""
+            <div class="chat-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">💬</div>
+                    <div style="font-size: 1.2rem; font-weight: 500; color: #4a5568; margin-bottom: 0.5rem;">
+                        No messages yet
+                    </div>
+                    <div style="color: #a0aec0;">
+                        Start by asking a question about HR policies, leave, or benefits
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        return
+    
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for message in st.session_state.chat_history:
         if message['role'] == 'user':
             st.markdown(f"""
@@ -430,12 +534,13 @@ def display_chat_history():
                 st.markdown("""
                     <div class="chat-message bot-message">
                         <div class="message-header">🤖 HR Assistant</div>
-                        <div style="color: #c53030; font-weight: 500;">
-                            ⚠️ Service temporarily unavailable due to high demand.
+                        <div style="color: #c53030; font-weight: 500; margin-bottom: 0.5rem;">
+                            ⚠️ Service temporarily unavailable due to high demand
                         </div>
-                        <div style="margin-top: 0.5rem;">
-                            Please contact HR directly for immediate assistance:
-                            <br>📧 hr@company.com | 📞 Ext. 1234
+                        <div style="font-size: 0.95rem;">
+                            Please contact HR directly for immediate assistance:<br>
+                            📧 <strong>hrd@spectron.in</strong><br>
+                            📞 <strong>+91 22 4606 6960 EXTN: 247</strong>
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -446,6 +551,7 @@ def display_chat_history():
                         {message['content']}
                     </div>
                 """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_typing_indicator():
     st.markdown("""
@@ -460,15 +566,20 @@ def show_typing_indicator():
 def show_contact_hr_card():
     st.markdown("""
         <div class="contact-hr-card">
-            <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">
-                📞 Need Personal Assistance?
-            </div>
-            <div style="font-size: 1rem;">
-                Our HR team is here to help with complex queries
-                <br><br>
-                <strong>Email:</strong> hr@company.com<br>
-                <strong>Phone:</strong> Ext. 1234<br>
-                <strong>Hours:</strong> Mon-Fri, 9 AM - 6 PM
+            <div class="contact-hr-title">📞 Need Personal Assistance?</div>
+            <div style="font-size: 1rem; line-height: 1.8;">
+                <div class="contact-detail">
+                    <strong>HR Department - Spectron</strong>
+                </div>
+                <div class="contact-detail">
+                    📧 <strong>hrd@spectron.in</strong>
+                </div>
+                <div class="contact-detail">
+                    📞 <strong>+91 22 4606 6960 EXTN: 247</strong>
+                </div>
+                <div class="contact-detail">
+                    🕐 <strong>Mon - Sat, 10 AM to 6 PM</strong>
+                </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -477,6 +588,18 @@ def show_contact_hr_card():
 def show_sidebar():
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
+        
+        # Company branding in sidebar
+        st.markdown("""
+            <div style="text-align: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e2e8f0;">
+                <div style="font-size: 1.5rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">
+                    SPECTRON
+                </div>
+                <div style="font-size: 0.8rem; color: #718096;">
+                    HR Assistant
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
         
         st.markdown("### 📊 Quick Stats")
         col1, col2 = st.columns(2)
@@ -512,11 +635,12 @@ def show_sidebar():
         
         st.markdown("### 📞 Contact HR")
         st.markdown("""
-            <div style="background: #f7fafc; padding: 1rem; border-radius: 12px;">
-                <strong>HR Department</strong><br>
-                📧 hr@company.com<br>
-                📞 Ext. 1234<br>
-                🕐 Mon-Fri: 9 AM - 6 PM
+            <div style="background: #f7fafc; padding: 1rem; border-radius: 12px; font-size: 0.9rem;">
+                <strong style="color: #c53030;">Spectron HR</strong><br>
+                📧 hrd@spectron.in<br>
+                📞 +91 22 4606 6960<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;EXTN: 247<br>
+                🕐 Mon-Sat: 10 AM - 6 PM
             </div>
         """, unsafe_allow_html=True)
         
@@ -526,8 +650,8 @@ def show_sidebar():
 def main():
     init_session_state()
     
-    # Header
-    st.markdown('<div class="main-header">💼 HR Policy Assistant</div>', unsafe_allow_html=True)
+    # Header with logo
+    show_logo()
     st.markdown('<div class="sub-header">Your 24/7 AI-powered HR companion</div>', unsafe_allow_html=True)
     
     # Setup Gemini
@@ -551,18 +675,16 @@ def main():
     # Show sidebar
     show_sidebar()
     
-    # Welcome screen (only if no chat history)
-    if not st.session_state.chat_history:
+    # Show welcome screen (always show if no chat or if explicitly enabled)
+    if st.session_state.show_welcome or not st.session_state.chat_history:
         show_welcome_screen()
+        st.session_state.show_welcome = False
     
-    # Chat container
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    # Chat display
     display_chat_history()
     
     if st.session_state.show_typing:
         show_typing_indicator()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
     
     # Input area
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
@@ -582,20 +704,17 @@ def main():
     
     col3, col4, col5 = st.columns([1, 1, 2])
     with col3:
-        clear = st.button("🔄 Clear", use_container_width=True)
+        if st.button("🔄 Clear Chat", use_container_width=True, key="clear_btn"):
+            st.session_state.chat_history = []
+            st.session_state.show_welcome = True
+            st.rerun()
     with col4:
-        contact = st.button("📞 Contact HR", use_container_width=True)
+        if st.button("📞 Contact HR", use_container_width=True, key="contact_btn"):
+            st.markdown('<div id="contact-section"></div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Handle buttons
-    if clear:
-        st.session_state.chat_history = []
-        st.rerun()
-    
-    if contact:
-        show_contact_hr_card()
-    
+    # Handle submit
     if submit and query:
         # Add user message
         st.session_state.chat_history.append({"role": "user", "content": query})
@@ -622,7 +741,7 @@ def main():
                     st.session_state.genai_client
                 )
             else:
-                response = "API not configured. Please contact HR directly."
+                response = "API not configured. Please contact HR directly at hrd@spectron.in or call +91 22 4606 6960 EXTN: 247"
             
             # Add bot response
             st.session_state.chat_history.append({"role": "assistant", "content": response})
@@ -636,9 +755,9 @@ def main():
     st.markdown("""
         <div class="footer">
             <p>🕐 Available 24/7 | 🔒 Conversations are private and secure</p>
-            <p>⚠️ For complex issues, please contact HR directly</p>
+            <p>⚠️ For complex issues, please contact HR directly at hrd@spectron.in</p>
             <p style="font-size: 0.75rem; color: #a0aec0; margin-top: 1rem;">
-                Powered by AI | © 2025 HR Department
+                © 2025 Spectron. All rights reserved.
             </p>
         </div>
     """, unsafe_allow_html=True)
