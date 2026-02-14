@@ -325,6 +325,16 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(197, 48, 48, 0.3);
     }
     
+    .welcome-input-container {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid #e2e8f0;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
+    
     @media (max-width: 768px) {
         .main-header {
             font-size: 1.75rem;
@@ -340,6 +350,11 @@ st.markdown("""
     
     div[data-testid="stButton"] > button {
         width: 100%;
+    }
+    
+    /* Style for chat input on welcome screen */
+    .welcome-chat-input {
+        margin-top: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -563,7 +578,7 @@ def show_new_chat_button():
         st.rerun()
 
 def show_welcome_screen():
-    """Display welcome screen with clickable example questions"""
+    """Display welcome screen with clickable example questions and text input"""
     show_logo()
     
     st.markdown("""
@@ -593,6 +608,42 @@ def show_welcome_screen():
             st.session_state.pending_question = question
             st.session_state.show_welcome = False
             st.rerun()
+    
+    # TEXT INPUT FIELD ON WELCOME SCREEN
+    st.markdown('<div class="welcome-input-container">', unsafe_allow_html=True)
+    st.markdown("**Or type your own question:**")
+    
+    # Use a form to handle the input submission
+    with st.form(key="welcome_input_form", clear_on_submit=True):
+        user_input = st.text_input(
+            "Ask your HR question...",
+            placeholder="e.g., What is the dress code policy?",
+            label_visibility="collapsed",
+            key="welcome_text_input"
+        )
+        submit_button = st.form_submit_button(
+            "Ask Question →", 
+            use_container_width=True,
+            type="primary"
+        )
+        
+        if submit_button and user_input.strip():
+            st.session_state.pending_question = user_input.strip()
+            st.session_state.show_welcome = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Alternative: Chat-style input at bottom
+    st.markdown("---")
+    st.markdown("💬 **Quick Ask:**")
+    
+    # Process any pending question immediately
+    if st.session_state.pending_question:
+        question = st.session_state.pending_question
+        st.session_state.pending_question = None
+        process_user_input(question)
+        st.rerun()
 
 def display_chat_history():
     """Display chat messages"""
@@ -689,14 +740,17 @@ def show_chat_interface():
     if st.session_state.show_typing:
         show_typing_indicator()
     
-    # Chat input
+    # Chat input at bottom
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
+    
+    # Use chat input for ongoing conversation
     user_input = st.chat_input("Type your HR question here...", key="chat_input")
-    st.markdown('</div>', unsafe_allow_html=True)
     
     if user_input:
         process_user_input(user_input)
         st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Process pending question from example/FAQ click
     if st.session_state.pending_question:
