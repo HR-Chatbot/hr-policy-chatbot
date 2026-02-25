@@ -280,7 +280,8 @@ def init_session_state():
         'show_typing': False,
         'current_topic': None,
         'current_policy_source': None,
-        'example_questions': []
+        'example_questions': [],
+        'debug_info': []  # For debugging
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -299,17 +300,18 @@ def extract_text_from_pdf(pdf_path):
                 text += extracted + " "
         return text.strip()
     except Exception as e:
+        st.session_state.debug_info.append(f"Error extracting {pdf_path.name}: {str(e)}")
         return ""
 
-def chunk_text(text, chunk_size=800, overlap=150):
+def chunk_text(text, chunk_size=500, overlap=100):  # Smaller chunks for better matching
     words = text.split()
-    if len(words) < 100:
+    if len(words) < 50:
         return [text] if text else []
     
     chunks = []
     for i in range(0, len(words), chunk_size - overlap):
         chunk = " ".join(words[i:i + chunk_size])
-        if len(chunk) > 100:
+        if len(chunk) > 50:
             chunks.append(chunk)
     return chunks
 
@@ -323,18 +325,17 @@ def extract_policy_name(filename):
 def load_policies():
     policies_dir = Path("policies")
     if not policies_dir.exists():
-        st.error("❌ Policies folder not found!")
+        st.session_state.debug_info.append("Policies folder not found!")
         return [], [], []
     
     pdf_files = list(policies_dir.glob("*.pdf"))
     if not pdf_files:
-        st.warning("⚠️ No PDF files found")
+        st.session_state.debug_info.append("No PDF files found!")
         return [], [], []
     
     all_chunks, chunk_sources = [], []
     example_questions = []
     
-    # Silent loading - no progress bar or status messages
     for pdf_file in pdf_files:
         text = extract_text_from_pdf(pdf_file)
         if text:
@@ -347,12 +348,18 @@ def load_policies():
                     'policy_name': policy_name
                 })
             
-            # Extract potential example question from first chunk
-            if chunks and len(example_questions) < 5:
-                first_chunk = chunks[0][:100]
-                if "leave" in first_chunk.lower():
+            # Create example question from policy name
+            if policy_name and len(example_questions) < 5:
+                if "leave" in policy_name.lower():
                     example_questions.append(f"What is the {policy_name}?")
+                elif "attendance" in policy_name.lower():
+                    example_questions.append(f"What are the {policy_name} rules?")
+                elif "code" in policy_name.lower() or "conduct" in policy_name.lower():
+                    example_questions.append(f"What is the {policy_name}?")
+                else:
+                    example_questions.append(f"Tell me about {policy_name}")
     
+    st.session_state.debug_info.append(f"Loaded {len(pdf_files)} policies, {len(all_chunks)} chunks")
     return all_chunks, chunk_sources, example_questions
 
 # ============== SEARCH FUNCTIONALITY ==============
@@ -364,21 +371,27 @@ def setup_vectorizer(chunks):
     tfidf_matrix = vectorizer.fit_transform(chunks)
     return vectorizer, tfidf_matrix
 
-def find_relevant_chunks(query, top_k=3):
+def find_relevant_chunks(query, top_k=5):  # Increased top_k
     if st.session_state.vectorizer is None or not st.session_state.policy_chunks:
+        st.session_state.debug_info.append("Vectorizer or chunks not initialized")
         return [], [], []
     
     query_vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
     top_indices = similarities.argsort()[-top_k:][::-1]
     
-    # Filter by similarity score (threshold)
+    # Log top scores for debugging
+    st.session_state.debug_info.append(f"Query: '{query}'")
+    for idx in top_indices[:3]:
+        st.session_state.debug_info.append(f"Score {similarities[idx]:.3f}: {st.session_state.policy_chunks[idx][:100]}...")
+    
+    # Lower threshold to catch more matches
     relevant_chunks = []
     sources = []
     scores = []
     
     for idx in top_indices:
-        if similarities[idx] > 0.15:  # Threshold for relevance
+        if similarities[idx] > 0.05:  # Much lower threshold
             relevant_chunks.append(st.session_state.policy_chunks[idx])
             sources.append(st.session_state.policy_sources[idx])
             scores.append(similarities[idx])
@@ -394,49 +407,52 @@ def setup_openai():
         api_key = os.getenv("OPENAI_API_KEY")
     
     if not api_key:
+        st.session_state.debug_info.append("No OpenAI API key found")
         return None
     
     try:
         client = OpenAI(api_key=api_key)
+        # Test the client with a simple call
+        client.models.list()
+        st.session_state.debug_info.append("OpenAI client initialized successfully")
         return client
     except Exception as e:
+        st.session_state.debug_info.append(f"OpenAI init error: {str(e)}")
         return None
 
 def format_policy_response(policy_text, policy_name, query, client, is_follow_up=False):
     """Format policy information using OpenAI"""
     try:
         if is_follow_up:
-            # For follow-up questions, elaborate within policy context
             prompt = f"""Based ONLY on the following policy text, answer the follow-up question.
             
 Policy Text (from {policy_name}):
-{policy_text[:1500]}
+{policy_text[:2000]}
 
 Follow-up Question: {query}
 
 Instructions:
 1. ONLY use information from the policy text above
 2. If the answer is not in the policy text, politely say it's not covered
-3. Keep response professional and concise (2-3 paragraphs max)
+3. Keep response professional and concise
 4. Use bullet points for clarity if listing information
 5. Reference the policy name at the end"""
         else:
-            # First question on topic - provide policy summary
             prompt = f"""Based ONLY on the following policy text, create a helpful summary.
 
 Policy Text (from {policy_name}):
-{policy_text[:1500]}
+{policy_text[:2000]}
 
 Instructions:
 1. Create a clean, professional summary using ONLY the policy text above
 2. Start with a brief definition/overview
-3. Use bullet points for key information (entitlement, guidelines, procedure)
+3. Use bullet points for key information
 4. Keep it concise and employee-friendly
 5. Do not add any information not in the policy text
 6. End with an invitation for follow-up questions
-7. Format exactly like this example:
+7. Format like this example:
 
-[Brief definition/overview sentence]
+[Brief definition]
 
 - **Key Point 1**: [details]
 - **Key Point 2**: [details]
@@ -447,50 +463,61 @@ If you have any specific questions or need further clarification, feel free to a
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an HR policy assistant. ONLY use the provided policy text. Never add external information."},
+                {"role": "system", "content": "You are an HR policy assistant. ONLY use the provided policy text."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,  # Lower temperature for consistency
-            max_tokens=500
+            temperature=0.3,
+            max_tokens=600
         )
         
         formatted_response = response.choices[0].message.content
+        st.session_state.debug_info.append(f"Generated response for {policy_name}")
         return formatted_response
         
     except Exception as e:
+        st.session_state.debug_info.append(f"OpenAI formatting error: {str(e)}")
         return None
 
 def get_policy_based_response(query, client):
     """Main function to get response based on policies"""
     
-    # Check if this is a follow-up to current topic
-    is_follow_up = (st.session_state.current_topic and 
-                   query.lower() in ["explain more", "tell me more", "elaborate", "can you explain more", 
-                                    "more details", "further", "clarify", "what about"])
+    # Check for greetings
+    greetings = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening"]
+    if query.lower().strip() in greetings or any(g in query.lower() for g in greetings):
+        return "👋 Hello! I'm your HR policy assistant. Feel free to ask me about company policies, leave rules, benefits, or any HR-related questions based on our official documents.", None
+    
+    # Check if this is a follow-up
+    follow_up_phrases = ["explain more", "tell me more", "elaborate", "can you explain", 
+                        "more details", "further", "clarify", "what about", "and", "also"]
+    is_follow_up = any(phrase in query.lower() for phrase in follow_up_phrases)
     
     if is_follow_up and st.session_state.current_policy_source:
         # Use current topic's policy for follow-up
         source = st.session_state.current_policy_source
-        policy_text = " ".join([chunk for chunk, s in zip(st.session_state.policy_chunks, 
-                                                          st.session_state.policy_sources) 
-                                if s['file'] == source['file']][:3])
+        # Get all chunks for this policy
+        policy_chunks = []
+        for chunk, s in zip(st.session_state.policy_chunks, st.session_state.policy_sources):
+            if s['file'] == source['file']:
+                policy_chunks.append(chunk)
         
-        response = format_policy_response(policy_text, source['policy_name'], query, client, is_follow_up=True)
-        if response:
-            return response, source['policy_name']
+        if policy_chunks:
+            policy_text = " ".join(policy_chunks[:5])  # Use up to 5 chunks
+            response = format_policy_response(policy_text, source['policy_name'], query, client, is_follow_up=True)
+            if response:
+                return response, source['policy_name']
     
     # Search for relevant policy
     relevant_chunks, sources, scores = find_relevant_chunks(query)
     
     if not relevant_chunks:
-        # No relevant policy found
+        st.session_state.debug_info.append("No relevant chunks found")
         st.session_state.current_topic = None
         st.session_state.current_policy_source = None
         return None, None
     
     # Get the best matching policy
     best_source = sources[0]
-    policy_text = " ".join(relevant_chunks[:3])  # Use top 3 chunks for context
+    policy_text = " ".join(relevant_chunks[:5])  # Use top 5 chunks
     
     # Format response
     response = format_policy_response(policy_text, best_source['policy_name'], query, client, is_follow_up=False)
@@ -530,9 +557,18 @@ def show_logo():
         """, unsafe_allow_html=True)
 
 def show_welcome_screen(example_questions):
+    if not example_questions:
+        example_questions = [
+            "What is the leave policy?",
+            "How many sick days do I get?",
+            "What is the notice period?",
+            "How to apply for leave?",
+            "What are company working hours?"
+        ]
+    
     example_html = '<div class="example-questions"><div class="example-questions-title">💡 Try asking:</div>'
     for q in example_questions[:5]:
-        example_html += f'<div class="example-question" onclick="navigateToQuestion(this)">{q}</div>'
+        example_html += f'<div class="example-question">{q}</div>'
     example_html += '</div>'
     
     st.markdown(f"""
@@ -544,20 +580,6 @@ def show_welcome_screen(example_questions):
             </div>
             {example_html}
         </div>
-        
-        <script>
-        function navigateToQuestion(element) {{
-            const input = document.querySelector('input[type="text"]');
-            if (input) {{
-                input.value = element.innerText;
-                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                setTimeout(() => {{
-                    const form = input.closest('form');
-                    if (form) form.dispatchEvent(new Event('submit', {{ bubbles: true, cancelable: true }}));
-                }}, 100);
-            }}
-        }}
-        </script>
     """, unsafe_allow_html=True)
 
 def display_chat_history():
@@ -623,13 +645,7 @@ def main():
             st.session_state.policy_sources = sources
             st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
             st.session_state.policies_loaded = True
-            st.session_state.example_questions = example_qs or [
-                "What is the casual leave policy?",
-                "How many sick leaves do I get?",
-                "What is the notice period?",
-                "How to apply for medical leave?",
-                "What are company working hours?"
-            ]
+            st.session_state.example_questions = example_qs
     
     # Show welcome screen only if no chat history
     if not st.session_state.chat_history:
@@ -641,10 +657,9 @@ def main():
     if st.session_state.show_typing:
         show_typing_indicator()
     
-    # Input area - Enter key submits automatically
+    # Input area
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    # Use a form for Enter key submission
     with st.form(key="chat_form", clear_on_submit=True):
         col1, col2 = st.columns([5, 1])
         with col1:
@@ -673,7 +688,6 @@ def main():
     
     # Handle submission
     if (submit or query) and query:
-        # Add user message
         st.session_state.chat_history.append({"role": "user", "content": query})
         st.session_state.show_typing = True
         st.rerun()
@@ -684,7 +698,7 @@ def main():
         if last_msg['role'] == 'user':
             
             if not st.session_state.openai_client:
-                response = "⚠️ Service temporarily unavailable. Please contact HR directly."
+                response = "⚠️ OpenAI service not configured. Please contact HR directly at hrd@spectron.in"
                 st.session_state.chat_history.append({"role": "assistant", "content": response})
                 st.session_state.show_typing = False
                 st.rerun()
@@ -720,6 +734,11 @@ Please contact HR directly for assistance:
             <p>🕐 Available 24/7 | 🔒 Responses based on official HR policies</p>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Debug expander (remove this in production)
+    with st.expander("Debug Info"):
+        for msg in st.session_state.debug_info[-10:]:
+            st.write(msg)
 
 if __name__ == "__main__":
     main()
