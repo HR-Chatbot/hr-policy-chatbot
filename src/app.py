@@ -11,6 +11,7 @@ from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+import time
 
 # ============== PAGE CONFIG ==============
 
@@ -173,15 +174,6 @@ st.markdown("""
         opacity: 0.9;
     }
     
-    .decline-message {
-        background: #fff5f5;
-        border-left: 4px solid #c53030;
-        padding: 1rem;
-        border-radius: 8px;
-        color: #742a2a;
-        font-size: 0.95rem;
-    }
-    
     .input-container {
         background: white;
         padding: 0.8rem;
@@ -277,11 +269,10 @@ def init_session_state():
         'tfidf_matrix': None,
         'policies_loaded': False,
         'openai_client': None,
-        'show_typing': False,
+        'processing': False,  # CRITICAL: Prevents infinite loops
         'current_topic': None,
         'current_policy_source': None,
-        'example_questions': [],
-        'debug_info': []  # For debugging
+        'example_questions': []
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -300,10 +291,9 @@ def extract_text_from_pdf(pdf_path):
                 text += extracted + " "
         return text.strip()
     except Exception as e:
-        st.session_state.debug_info.append(f"Error extracting {pdf_path.name}: {str(e)}")
         return ""
 
-def chunk_text(text, chunk_size=500, overlap=100):  # Smaller chunks for better matching
+def chunk_text(text, chunk_size=500, overlap=100):
     words = text.split()
     if len(words) < 50:
         return [text] if text else []
@@ -325,12 +315,10 @@ def extract_policy_name(filename):
 def load_policies():
     policies_dir = Path("policies")
     if not policies_dir.exists():
-        st.session_state.debug_info.append("Policies folder not found!")
         return [], [], []
     
     pdf_files = list(policies_dir.glob("*.pdf"))
     if not pdf_files:
-        st.session_state.debug_info.append("No PDF files found!")
         return [], [], []
     
     all_chunks, chunk_sources = [], []
@@ -354,12 +342,9 @@ def load_policies():
                     example_questions.append(f"What is the {policy_name}?")
                 elif "attendance" in policy_name.lower():
                     example_questions.append(f"What are the {policy_name} rules?")
-                elif "code" in policy_name.lower() or "conduct" in policy_name.lower():
-                    example_questions.append(f"What is the {policy_name}?")
                 else:
                     example_questions.append(f"Tell me about {policy_name}")
     
-    st.session_state.debug_info.append(f"Loaded {len(pdf_files)} policies, {len(all_chunks)} chunks")
     return all_chunks, chunk_sources, example_questions
 
 # ============== SEARCH FUNCTIONALITY ==============
@@ -371,27 +356,20 @@ def setup_vectorizer(chunks):
     tfidf_matrix = vectorizer.fit_transform(chunks)
     return vectorizer, tfidf_matrix
 
-def find_relevant_chunks(query, top_k=5):  # Increased top_k
+def find_relevant_chunks(query, top_k=5):
     if st.session_state.vectorizer is None or not st.session_state.policy_chunks:
-        st.session_state.debug_info.append("Vectorizer or chunks not initialized")
         return [], [], []
     
     query_vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
     top_indices = similarities.argsort()[-top_k:][::-1]
     
-    # Log top scores for debugging
-    st.session_state.debug_info.append(f"Query: '{query}'")
-    for idx in top_indices[:3]:
-        st.session_state.debug_info.append(f"Score {similarities[idx]:.3f}: {st.session_state.policy_chunks[idx][:100]}...")
-    
-    # Lower threshold to catch more matches
     relevant_chunks = []
     sources = []
     scores = []
     
     for idx in top_indices:
-        if similarities[idx] > 0.05:  # Much lower threshold
+        if similarities[idx] > 0.05:  # Threshold
             relevant_chunks.append(st.session_state.policy_chunks[idx])
             sources.append(st.session_state.policy_sources[idx])
             scores.append(similarities[idx])
@@ -407,17 +385,12 @@ def setup_openai():
         api_key = os.getenv("OPENAI_API_KEY")
     
     if not api_key:
-        st.session_state.debug_info.append("No OpenAI API key found")
         return None
     
     try:
         client = OpenAI(api_key=api_key)
-        # Test the client with a simple call
-        client.models.list()
-        st.session_state.debug_info.append("OpenAI client initialized successfully")
         return client
     except Exception as e:
-        st.session_state.debug_info.append(f"OpenAI init error: {str(e)}")
         return None
 
 def format_policy_response(policy_text, policy_name, query, client, is_follow_up=False):
@@ -470,20 +443,17 @@ If you have any specific questions or need further clarification, feel free to a
             max_tokens=600
         )
         
-        formatted_response = response.choices[0].message.content
-        st.session_state.debug_info.append(f"Generated response for {policy_name}")
-        return formatted_response
+        return response.choices[0].message.content
         
     except Exception as e:
-        st.session_state.debug_info.append(f"OpenAI formatting error: {str(e)}")
         return None
 
 def get_policy_based_response(query, client):
     """Main function to get response based on policies"""
     
-    # Check for greetings
+    # Check for greetings (no API call needed)
     greetings = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening"]
-    if query.lower().strip() in greetings or any(g in query.lower() for g in greetings):
+    if query.lower().strip() in greetings or any(query.lower().startswith(g) for g in greetings):
         return "👋 Hello! I'm your HR policy assistant. Feel free to ask me about company policies, leave rules, benefits, or any HR-related questions based on our official documents.", None
     
     # Check if this is a follow-up
@@ -501,7 +471,7 @@ def get_policy_based_response(query, client):
                 policy_chunks.append(chunk)
         
         if policy_chunks:
-            policy_text = " ".join(policy_chunks[:5])  # Use up to 5 chunks
+            policy_text = " ".join(policy_chunks[:5])
             response = format_policy_response(policy_text, source['policy_name'], query, client, is_follow_up=True)
             if response:
                 return response, source['policy_name']
@@ -510,14 +480,13 @@ def get_policy_based_response(query, client):
     relevant_chunks, sources, scores = find_relevant_chunks(query)
     
     if not relevant_chunks:
-        st.session_state.debug_info.append("No relevant chunks found")
         st.session_state.current_topic = None
         st.session_state.current_policy_source = None
         return None, None
     
     # Get the best matching policy
     best_source = sources[0]
-    policy_text = " ".join(relevant_chunks[:5])  # Use top 5 chunks
+    policy_text = " ".join(relevant_chunks[:5])
     
     # Format response
     response = format_policy_response(policy_text, best_source['policy_name'], query, client, is_follow_up=False)
@@ -654,7 +623,8 @@ def main():
     # Chat display
     display_chat_history()
     
-    if st.session_state.show_typing:
+    # Show typing indicator if processing
+    if st.session_state.processing:
         show_typing_indicator()
     
     # Input area
@@ -681,49 +651,55 @@ def main():
             st.session_state.chat_history = []
             st.session_state.current_topic = None
             st.session_state.current_policy_source = None
+            st.session_state.processing = False
             st.rerun()
     with col2:
         if st.button("📞 HR", use_container_width=True, key="contact_btn"):
-            st.markdown("Contact HR: hrd@spectron.in | +91 22 4606 6960 EXTN: 247")
+            st.info("Contact HR: hrd@spectron.in | +91 22 4606 6960 EXTN: 247")
     
-    # Handle submission
-    if (submit or query) and query:
+    # Handle submission - CRITICAL FIX for infinite loop
+    if (submit or query) and query and not st.session_state.processing:
+        # Add user message
         st.session_state.chat_history.append({"role": "user", "content": query})
-        st.session_state.show_typing = True
+        st.session_state.processing = True
         st.rerun()
     
-    # Process AI response
-    if st.session_state.show_typing and st.session_state.chat_history:
+    # Process AI response - ONLY if processing flag is True
+    if st.session_state.processing and st.session_state.chat_history:
         last_msg = st.session_state.chat_history[-1]
+        
+        # Ensure we're processing a user message
         if last_msg['role'] == 'user':
             
+            # Check OpenAI client
             if not st.session_state.openai_client:
                 response = "⚠️ OpenAI service not configured. Please contact HR directly at hrd@spectron.in"
                 st.session_state.chat_history.append({"role": "assistant", "content": response})
-                st.session_state.show_typing = False
+                st.session_state.processing = False
                 st.rerun()
-            
-            # Get response based on policies
-            response, policy_name = get_policy_based_response(last_msg['content'], st.session_state.openai_client)
-            
-            if response:
-                # Add policy reference if available
-                if policy_name:
-                    response += f'\n\n<div class="policy-reference">📄 Source: {policy_name}</div>'
-                st.session_state.chat_history.append({"role": "assistant", "content": response})
             else:
-                # Politely decline - no relevant policy found
-                decline_msg = """I couldn't find information about this in the company policies. 
+                # Get response based on policies
+                response, policy_name = get_policy_based_response(last_msg['content'], st.session_state.openai_client)
+                
+                if response:
+                    # Add policy reference if available
+                    if policy_name:
+                        response += f'\n\n<div class="policy-reference">📄 Source: {policy_name}</div>'
+                    st.session_state.chat_history.append({"role": "assistant", "content": response})
+                else:
+                    # Politely decline - no relevant policy found
+                    decline_msg = """I couldn't find information about this in the company policies. 
 
 Please contact HR directly for assistance:
 📧 hrd@spectron.in
 📞 +91 22 4606 6960 EXTN: 247"""
-                st.session_state.chat_history.append({"role": "assistant", "content": decline_msg})
-                st.session_state.current_topic = None
-                st.session_state.current_policy_source = None
-            
-            st.session_state.show_typing = False
-            st.rerun()
+                    st.session_state.chat_history.append({"role": "assistant", "content": decline_msg})
+                    st.session_state.current_topic = None
+                    st.session_state.current_policy_source = None
+                
+                # CRITICAL: Turn off processing flag
+                st.session_state.processing = False
+                st.rerun()
     
     # Contact HR card
     show_contact_hr_card()
@@ -734,11 +710,6 @@ Please contact HR directly for assistance:
             <p>🕐 Available 24/7 | 🔒 Responses based on official HR policies</p>
         </div>
     """, unsafe_allow_html=True)
-    
-    # Debug expander (remove this in production)
-    with st.expander("Debug Info"):
-        for msg in st.session_state.debug_info[-10:]:
-            st.write(msg)
 
 if __name__ == "__main__":
     main()
