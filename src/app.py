@@ -1,6 +1,6 @@
 """
 HR Policy Chatbot for Spectron - Strict Policy-Only Version
-Features: Policy-only answers, no external knowledge, auto-submit, clean UI
+Features: Policy-only answers, conversational greetings, auto-submit, clean UI
 """
 
 import streamlit as st
@@ -11,7 +11,6 @@ from openai import OpenAI
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 
 # ============== PAGE CONFIG ==============
 
@@ -115,7 +114,7 @@ st.markdown("""
         border-radius: 16px;
         padding: 1.5rem;
         margin-bottom: 1rem;
-        min-height: 300px;
+        min-height: 200px;
         max-height: 500px;
         overflow-y: auto;
     }
@@ -238,6 +237,14 @@ st.markdown("""
         color: #c53030;
     }
     
+    .greeting-message {
+        background: #f0fff4;
+        border-left: 4px solid #38a169;
+        padding: 1rem;
+        border-radius: 8px;
+        color: #2f855a;
+    }
+    
     .contact-hr-card {
         background: linear-gradient(135deg, #f6e05e 0%, #d69e2e 100%);
         color: #744210;
@@ -289,6 +296,12 @@ st.markdown("""
         border-top: 1px solid #e2e8f0;
     }
     
+    /* Remove extra spacing */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+    
     /* Hide Streamlit default elements */
     .stDeployButton {display: none !important;}
     #MainMenu {visibility: hidden !important;}
@@ -323,8 +336,9 @@ def init_session_state():
         'openai_client': None,
         'show_typing': False,
         'show_welcome': True,
-        'policy_texts': {},  # Store full policy texts
-        'suggested_questions': []
+        'policy_texts': {},
+        'suggested_questions': [],
+        'input_key': 0  # For clearing input
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -362,7 +376,7 @@ def load_policies():
         return [], [], [], {}
     
     all_chunks, chunk_sources = [], []
-    policy_texts = {}  # Store full text by filename
+    policy_texts = {}
     
     for pdf_file in pdf_files:
         text = extract_text_from_pdf(pdf_file)
@@ -394,30 +408,40 @@ def find_relevant_chunks(query, top_k=5):
     scores = similarities[top_indices]
     return relevant_chunks, scores
 
-def check_policy_match(query, threshold=0.15):
-    """Check if query matches any policy content with minimum threshold"""
+# ============== QUERY CLASSIFICATION ==============
+
+def is_greeting(query):
+    """Check if query is a greeting"""
+    greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'namaste', 'greetings']
+    query_lower = query.lower().strip()
+    return any(g in query_lower for g in greetings) or len(query_lower) < 4
+
+def is_policy_related(query):
+    """Check if query is related to HR policies"""
+    policy_keywords = [
+        'leave', 'attendance', 'salary', 'pay', 'reimbursement', 'claim', 'benefit', 'policy',
+        'holiday', 'vacation', 'sick', 'medical', 'casual', 'annual', 'privilege', 'maternity',
+        'paternity', 'notice', 'resignation', 'termination', 'probation', 'confirmation',
+        'working hours', 'overtime', 'shift', 'allowance', 'deduction', 'tax', 'insurance',
+        'pf', 'provident fund', 'gratuity', 'bonus', 'increment', 'appraisal', 'promotion',
+        'transfer', 'training', 'travel', 'expense', 'code of conduct', 'disciplinary',
+        'harassment', 'grievance', 'complaint', 'safety', 'security', 'asset', 'laptop'
+    ]
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in policy_keywords)
+
+def check_policy_content(query, threshold=0.1):
+    """Check if query matches actual policy content"""
     relevant_chunks, scores = find_relevant_chunks(query, top_k=3)
-    
-    # Get best match score
     best_score = scores[0] if len(scores) > 0 else 0
     
-    # Check for exact keyword matches in policy texts
-    query_lower = query.lower()
-    keywords = query_lower.split()
+    # Also check for keyword presence
+    query_words = set(query.lower().split())
+    policy_text = " ".join(st.session_state.policy_texts.values()).lower()
+    word_matches = sum(1 for word in query_words if len(word) > 3 and word in policy_text)
     
-    exact_match_found = False
-    for policy_text in st.session_state.policy_texts.values():
-        policy_lower = policy_text.lower()
-        # Check if any significant keyword exists in policy
-        for keyword in keywords:
-            if len(keyword) > 3 and keyword in policy_lower:
-                exact_match_found = True
-                break
-        if exact_match_found:
-            break
-    
-    # Return True if either TF-IDF score is good OR exact keyword found
-    return (best_score > threshold or exact_match_found), relevant_chunks, scores
+    has_match = best_score > threshold or word_matches >= 2
+    return has_match, relevant_chunks, scores
 
 # ============== EXTRACT FAQ FROM POLICIES ==============
 
@@ -425,40 +449,36 @@ def extract_suggested_questions():
     """Extract potential questions from policy content"""
     questions = []
     
-    # Common patterns to look for in policies
     patterns = [
-        (r'(?i)(casual leave|sick leave|medical leave|annual leave|privilege leave)', 'How many {0} days do I have per year?'),
+        (r'(?i)(casual leave)', 'How many casual leaves do I have per year?'),
+        (r'(?i)(sick leave|medical leave)', 'How many sick leaves do I have?'),
+        (r'(?i)(annual leave|privilege leave)', 'What is the annual leave entitlement?'),
         (r'(?i)(notice period|resignation)', 'What is the notice period policy?'),
         (r'(?i)(apply for leave|leave application)', 'How do I apply for leave?'),
         (r'(?i)(working hours|office hours)', 'What are the company working hours?'),
         (r'(?i)(reimbursement|medical claim)', 'How to claim medical reimbursement?'),
         (r'(?i)(probation|confirmation)', 'What is the probation period?'),
-        (r'(?i)(attendance|punch in|biometric)', 'What is the attendance policy?'),
+        (r'(?i)(attendance|biometric)', 'What is the attendance policy?'),
     ]
     
     all_text = " ".join(st.session_state.policy_texts.values()).lower()
     
-    for pattern, template in patterns:
-        matches = re.findall(pattern, all_text)
-        if matches:
-            # Use the first match to format the question
-            match = matches[0]
-            if isinstance(match, tuple):
-                match = match[0]
-            question = template.format(match)
-            if question not in questions:
-                questions.append(question)
+    for pattern, question in patterns:
+        if re.search(pattern, all_text) and question not in questions:
+            questions.append(question)
     
-    # Return top 5 unique questions, or defaults if none found
-    if len(questions) < 3:
-        defaults = [
-            "How many casual leaves do I have per year?",
-            "What is the notice period policy?",
-            "How do I apply for leave?",
-            "What are the company working hours?",
-            "How to claim medical reimbursement?"
-        ]
-        questions.extend(defaults)
+    # Add defaults if needed
+    defaults = [
+        "How many casual leaves do I have per year?",
+        "What is the notice period policy?",
+        "How do I apply for leave?",
+        "What are the company working hours?",
+        "How to claim medical reimbursement?"
+    ]
+    
+    for d in defaults:
+        if d not in questions:
+            questions.append(d)
     
     return questions[:5]
 
@@ -479,74 +499,83 @@ def setup_openai():
     except Exception as e:
         return None
 
-def format_policy_response(query, context, client):
-    """Format policy content into structured response using OpenAI"""
-    try:
-        prompt = f"""You are a strict HR Policy Assistant. You must ONLY use the provided policy context to answer. 
-If the answer is not in the context, respond with "NOT_IN_POLICY".
+def get_greeting_response():
+    """Return a friendly greeting"""
+    return """Hello! 👋 Welcome to the Spectron HR Assistant.
 
-Format the policy information in a clear, structured way with bullet points and headers.
+I'm here to help you with HR policies, leave applications, benefits, and other HR-related queries. 
+
+Please feel free to ask me about:
+• Leave policies (casual, sick, annual)
+• Attendance and working hours
+• Reimbursement procedures
+• Notice period and resignation
+• Any other HR policy questions
+
+How can I assist you today?"""
+
+def format_policy_answer(query, context, client):
+    """Format policy content into structured answer"""
+    try:
+        prompt = f"""You are an HR Policy Assistant. Create a clear, structured answer using ONLY the provided policy context.
 
 Query: {query}
 
 Policy Context:
-{context}
+{context[:2000]}
 
 Instructions:
-1. ONLY use information from the context above
-2. Format with clear headers (Purpose, Eligibility, Entitlement, Usage Guidelines, Application, Approval, etc.)
+1. Use ONLY information from the context above
+2. Format with clear headers like: **Purpose**, **Eligibility**, **Entitlement**, **Application**, **Approval**
 3. Use bullet points for lists
-4. Keep it concise and professional
-5. If information is not in context, say "NOT_IN_POLICY"
-6. Do not add any external knowledge
+4. If specific information is not in context, say "NOT_FOUND"
+5. Be concise and professional
 
-Response:"""
+Answer:"""
         
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,  # Low temperature for strict adherence
+            temperature=0.1,
             max_tokens=600
         )
         
         answer = response.choices[0].message.content.strip()
         
-        if "NOT_IN_POLICY" in answer or len(answer) < 20:
-            return None  # Signal to show decline message
+        if "NOT_FOUND" in answer or len(answer) < 30:
+            return None
         
         return answer
         
     except Exception as e:
         return None
 
-def get_followup_response(query, context, chat_history, client):
-    """Handle follow-up questions using only policy context"""
+def get_policy_response(query, context, chat_history, client):
+    """Get response for policy-related query"""
     try:
         # Build conversation context
         history_text = ""
-        for msg in chat_history[-4:]:  # Last 4 messages for context
+        for msg in chat_history[-3:]:
             role = "User" if msg['role'] == 'user' else "Assistant"
             history_text += f"{role}: {msg['content']}\n"
         
-        prompt = f"""You are a strict HR Policy Assistant. Answer ONLY using the policy context provided.
-If the answer cannot be found in the policy context, respond with "NOT_IN_POLICY".
+        prompt = f"""You are a strict HR Policy Assistant. Answer using ONLY the policy context provided.
 
-Previous Conversation:
+Conversation History:
 {history_text}
 
 Policy Context:
-{context}
+{context[:2000]}
 
-Current Follow-up Question: {query}
+Current Question: {query}
 
 Instructions:
 1. Answer ONLY based on the policy context above
-2. Consider the conversation history for context
-3. If the specific information is not in the policy, say "NOT_IN_POLICY"
-4. Do not use any external knowledge or make up information
-5. Be concise and professional
+2. If the answer is not in the policy, respond with "NOT_IN_POLICY"
+3. Do not use external knowledge
+4. Be concise and professional
 
-Response:"""
+Answer:"""
         
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -601,22 +630,10 @@ def show_welcome_screen():
             </div>
         </div>
     """, unsafe_allow_html=True)
-    
-    # Dynamic FAQ from policies
-    if st.session_state.suggested_questions:
-        st.markdown('<div class="example-questions">', unsafe_allow_html=True)
-        st.markdown('<div class="example-questions-title">💡 Try asking:</div>', unsafe_allow_html=True)
-        
-        for i, question in enumerate(st.session_state.suggested_questions):
-            if st.button(question, key=f"faq_{i}", use_container_width=True):
-                st.session_state.user_input_value = question
-                st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
 
 def display_chat_history():
     if not st.session_state.chat_history:
-        return  # Don't show anything if no messages
+        return
     
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for message in st.session_state.chat_history:
@@ -628,7 +645,8 @@ def display_chat_history():
                 </div>
             """, unsafe_allow_html=True)
         else:
-            if message['content'] == "POLICY_NOT_FOUND":
+            content = message['content']
+            if content == "POLICY_NOT_FOUND":
                 st.markdown("""
                     <div class="chat-message bot-message">
                         <div class="message-header">🤖 HR Assistant</div>
@@ -638,13 +656,19 @@ def display_chat_history():
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-            else:
-                # Format the response with proper HTML
-                formatted_content = message['content'].replace('\n', '<br>')
+            elif content == "GREETING":
                 st.markdown(f"""
                     <div class="chat-message bot-message">
                         <div class="message-header">🤖 HR Assistant</div>
-                        <div class="policy-answer">{formatted_content}</div>
+                        <div class="greeting-message">{get_greeting_response()}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                formatted = content.replace('\n', '<br>')
+                st.markdown(f"""
+                    <div class="chat-message bot-message">
+                        <div class="message-header">🤖 HR Assistant</div>
+                        <div class="policy-answer">{formatted}</div>
                     </div>
                 """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -664,41 +688,25 @@ def show_contact_hr_card():
         <div class="contact-hr-card">
             <div class="contact-hr-title">📞 Need Personal Assistance?</div>
             <div style="font-size: 1rem; line-height: 1.8;">
-                <div class="contact-detail">
-                    <strong>HR Department - Spectron</strong>
-                </div>
-                <div class="contact-detail">
-                    📧 <strong>hrd@spectron.in</strong>
-                </div>
-                <div class="contact-detail">
-                    📞 <strong>+91 22 4606 6960 EXTN: 247</strong>
-                </div>
-                <div class="contact-detail">
-                    🕐 <strong>Mon - Sat, 10 AM to 6 PM</strong>
-                </div>
+                <div class="contact-detail"><strong>HR Department - Spectron</strong></div>
+                <div class="contact-detail">📧 <strong>hrd@spectron.in</strong></div>
+                <div class="contact-detail">📞 <strong>+91 22 4606 6960 EXTN: 247</strong></div>
+                <div class="contact-detail">🕐 <strong>Mon - Sat, 10 AM to 6 PM</strong></div>
             </div>
         </div>
     """, unsafe_allow_html=True)
-
-# ============== SIDEBAR ==============
 
 def show_sidebar():
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
         
-        # Company branding only - NO STATS
         st.markdown("""
             <div style="text-align: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e2e8f0;">
-                <div style="font-size: 1.5rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">
-                    SPECTRON
-                </div>
-                <div style="font-size: 0.8rem; color: #718096;">
-                    HR Assistant
-                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">SPECTRON</div>
+                <div style="font-size: 0.8rem; color: #718096;">HR Assistant</div>
             </div>
         """, unsafe_allow_html=True)
         
-        # FAQ only - NO QUICK STATS
         st.markdown("### ❓ Frequently Asked")
         for faq in st.session_state.suggested_questions[:5]:
             st.markdown(f'<div class="faq-item">{faq}</div>', unsafe_allow_html=True)
@@ -723,7 +731,7 @@ def show_sidebar():
 def main():
     init_session_state()
     
-    # Header with logo
+    # Header
     show_logo()
     st.markdown('<div class="sub-header">Your 24/7 AI-powered HR companion</div>', unsafe_allow_html=True)
     
@@ -731,7 +739,7 @@ def main():
     if st.session_state.openai_client is None:
         st.session_state.openai_client = setup_openai()
     
-    # Load policies (NO SUCCESS MESSAGE)
+    # Load policies (silent)
     if not st.session_state.policies_loaded:
         with st.spinner(""):
             chunks, sources, pdf_files, policy_texts = load_policies()
@@ -741,16 +749,28 @@ def main():
                 st.session_state.policy_texts = policy_texts
                 st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
                 st.session_state.policies_loaded = True
-                # Extract suggested questions from policies
                 st.session_state.suggested_questions = extract_suggested_questions()
     
-    # Show sidebar
+    # Sidebar
     show_sidebar()
     
-    # Show welcome screen
+    # Welcome screen
     if st.session_state.show_welcome or not st.session_state.chat_history:
         show_welcome_screen()
         st.session_state.show_welcome = False
+    
+    # FAQ buttons
+    if st.session_state.suggested_questions:
+        st.markdown('<div class="example-questions">', unsafe_allow_html=True)
+        st.markdown('<div class="example-questions-title">💡 Try asking:</div>', unsafe_allow_html=True)
+        
+        cols = st.columns(len(st.session_state.suggested_questions[:3]))
+        for i, question in enumerate(st.session_state.suggested_questions[:3]):
+            with cols[i]:
+                if st.button(question, key=f"faq_btn_{i}", use_container_width=True):
+                    process_message(question)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Chat display
     display_chat_history()
@@ -758,125 +778,46 @@ def main():
     if st.session_state.show_typing:
         show_typing_indicator()
     
-    # Input area with auto-submit on Enter
+    # Input area
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    # Use session state for input value to enable clearing
-    if 'user_input_value' not in st.session_state:
-        st.session_state.user_input_value = ""
+    # Use dynamic key to clear input
+    current_key = f"user_input_{st.session_state.input_key}"
     
-    # Create columns for input and button
     col1, col2 = st.columns([4, 1])
     
     with col1:
         query = st.text_input(
             "Ask your question...",
             placeholder="E.g., How many casual leaves do I have?",
-            key="user_input_widget",
-            value=st.session_state.user_input_value,
+            key=current_key,
             label_visibility="collapsed",
-            on_change=lambda: handle_submit() if st.session_state.user_input_widget else None
+            on_change=lambda: handle_input_change(current_key)
         )
     
     with col2:
-        submit = st.button("🚀 Ask", use_container_width=True, type="primary")
+        submit = st.button("🚀 Ask", use_container_width=True, type="primary", 
+                          on_click=lambda: handle_submit(current_key))
     
-    # Clear and Contact buttons
     col3, col4 = st.columns([1, 1])
     with col3:
-        if st.button("🔄 Clear Chat", use_container_width=True, key="clear_btn"):
+        if st.button("🔄 Clear Chat", use_container_width=True):
             st.session_state.chat_history = []
             st.session_state.show_welcome = True
-            st.session_state.user_input_value = ""
             st.rerun()
     with col4:
-        if st.button("📞 Contact HR", use_container_width=True, key="contact_btn"):
-            pass  # Scrolls to contact card
+        if st.button("📞 Contact HR", use_container_width=True):
+            pass
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Handle submit (button or enter key)
-    def handle_submit():
-        query_text = st.session_state.user_input_widget.strip()
-        if query_text:
-            process_query(query_text)
+    # Process pending message
+    if 'pending_message' in st.session_state and st.session_state.pending_message:
+        msg = st.session_state.pending_message
+        st.session_state.pending_message = None
+        process_response(msg)
     
-    if submit:
-        handle_submit()
-    
-    # Process query function
-    def process_query(query_text):
-        # Add user message
-        st.session_state.chat_history.append({"role": "user", "content": query_text})
-        # Clear input immediately
-        st.session_state.user_input_value = ""
-        st.session_state.show_typing = True
-        st.rerun()
-    
-    # Process AI response (after rerun)
-    if st.session_state.show_typing and st.session_state.chat_history:
-        last_msg = st.session_state.chat_history[-1]
-        if last_msg['role'] == 'user':
-            query = last_msg['content']
-            
-            # Check if query matches policy content
-            has_match, relevant_chunks, scores = check_policy_match(query, threshold=0.15)
-            
-            if not has_match:
-                # No match found - polite decline
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "content": "POLICY_NOT_FOUND"
-                })
-            else:
-                # Build context from relevant chunks
-                context = "\n\n".join([
-                    f"{chunk}" for chunk, score in zip(relevant_chunks, scores) 
-                    if score > 0.05
-                ])
-                
-                # Determine if follow-up or new query
-                is_followup = len([m for m in st.session_state.chat_history if m['role'] == 'user']) > 1
-                
-                if st.session_state.openai_client:
-                    if is_followup and len(st.session_state.chat_history) > 2:
-                        # Follow-up question
-                        response = get_followup_response(
-                            query, 
-                            context, 
-                            st.session_state.chat_history[:-1], 
-                            st.session_state.openai_client
-                        )
-                    else:
-                        # New query - format as structured policy
-                        response = format_policy_response(
-                            query, 
-                            context, 
-                            st.session_state.openai_client
-                        )
-                    
-                    if response is None:
-                        # OpenAI indicated not in policy
-                        st.session_state.chat_history.append({
-                            "role": "assistant", 
-                            "content": "POLICY_NOT_FOUND"
-                        })
-                    else:
-                        st.session_state.chat_history.append({
-                            "role": "assistant", 
-                            "content": response
-                        })
-                else:
-                    # No API - show raw context
-                    st.session_state.chat_history.append({
-                        "role": "assistant", 
-                        "content": f"Based on our policies:\n\n{context[:500]}..."
-                    })
-            
-            st.session_state.show_typing = False
-            st.rerun()
-    
-    # Contact HR card
+    # Contact card
     show_contact_hr_card()
     
     # Footer
@@ -884,11 +825,85 @@ def main():
         <div class="footer">
             <p>🕐 Available 24/7 | 🔒 Conversations are private and secure</p>
             <p>⚠️ For complex issues, please contact HR directly at hrd@spectron.in</p>
-            <p style="font-size: 0.75rem; color: #a0aec0; margin-top: 1rem;">
-                © 2025 Spectron. All rights reserved.
-            </p>
+            <p style="font-size: 0.75rem; color: #a0aec0; margin-top: 1rem;">© 2025 Spectron. All rights reserved.</p>
         </div>
     """, unsafe_allow_html=True)
+
+def handle_input_change(key):
+    """Handle Enter key press"""
+    value = st.session_state.get(key, "").strip()
+    if value:
+        st.session_state.pending_message = value
+        st.session_state.input_key += 1  # Clear input
+
+def handle_submit(key):
+    """Handle Ask button click"""
+    value = st.session_state.get(key, "").strip()
+    if value:
+        st.session_state.pending_message = value
+        st.session_state.input_key += 1  # Clear input
+
+def process_message(message):
+    """Process message from FAQ button"""
+    st.session_state.pending_message = message
+    st.session_state.input_key += 1
+    st.rerun()
+
+def process_response(query):
+    """Process the query and generate response"""
+    # Add user message
+    st.session_state.chat_history.append({"role": "user", "content": query})
+    st.session_state.show_typing = True
+    
+    # Check query type
+    if is_greeting(query):
+        # Greeting - respond friendly
+        st.session_state.chat_history.append({"role": "assistant", "content": "GREETING"})
+        st.session_state.show_typing = False
+        st.rerun()
+        return
+    
+    if not is_policy_related(query):
+        # Not policy related - decline
+        st.session_state.chat_history.append({"role": "assistant", "content": "POLICY_NOT_FOUND"})
+        st.session_state.show_typing = False
+        st.rerun()
+        return
+    
+    # Check if content exists in policies
+    has_match, relevant_chunks, scores = check_policy_content(query)
+    
+    if not has_match:
+        # No policy match - decline
+        st.session_state.chat_history.append({"role": "assistant", "content": "POLICY_NOT_FOUND"})
+        st.session_state.show_typing = False
+        st.rerun()
+        return
+    
+    # Build context
+    context = "\n\n".join([chunk for chunk in relevant_chunks[:3]])
+    
+    # Get AI formatted response
+    client = st.session_state.openai_client
+    if client:
+        # Check if follow-up
+        is_followup = len([m for m in st.session_state.chat_history if m['role'] == 'user']) > 1
+        
+        if is_followup:
+            response = get_policy_response(query, context, st.session_state.chat_history[:-1], client)
+        else:
+            response = format_policy_answer(query, context, client)
+        
+        if response:
+            st.session_state.chat_history.append({"role": "assistant", "content": response})
+        else:
+            st.session_state.chat_history.append({"role": "assistant", "content": "POLICY_NOT_FOUND"})
+    else:
+        # No API - show raw context
+        st.session_state.chat_history.append({"role": "assistant", "content": f"Based on our policies:\n\n{context[:800]}"})
+    
+    st.session_state.show_typing = False
+    st.rerun()
 
 if __name__ == "__main__":
     main()
