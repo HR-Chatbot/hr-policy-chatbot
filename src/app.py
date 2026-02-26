@@ -383,17 +383,42 @@ I can help you with HR policies including:
 Please ask me about any HR policy!"""
 
 def is_in_policy_content(query, chunks, scores):
-    """Strict check if query is actually answered in policy content"""
-    # Must have decent semantic similarity
-    if not scores or scores[0] < 0.08:
-        return False
+    """Check if query matches policy content OR filename - FIXED VERSION"""
     
-    # Must have keyword matches
+    # Normalize query for matching
+    query_normalized = query.lower().replace(' ', '').replace('-', '').replace('_', '')
     query_words = set(w.lower() for w in query.split() if len(w) > 3)
-    combined_text = " ".join(chunks[:2]).lower()
     
-    matches = sum(1 for w in query_words if w in combined_text)
-    return matches >= 1
+    # 1. Check if query matches any policy filename
+    for pdf_file in st.session_state.policy_files:
+        filename_normalized = pdf_file.name.lower().replace('.pdf', '').replace(' ', '').replace('-', '').replace('_', '')
+        # Check if significant parts of query match filename
+        if any(word in filename_normalized for word in query_words):
+            return True
+        # Check if filename contains query parts
+        if len(query_normalized) > 5 and query_normalized in filename_normalized:
+            return True
+        # Check reverse: if filename keywords are in query
+        filename_words = set(filename_normalized.split())
+        if len(filename_words) > 0:
+            match_count = sum(1 for fw in filename_words if fw in query_normalized and len(fw) > 3)
+            if match_count >= 1:
+                return True
+    
+    # 2. Check semantic similarity in content
+    if scores and scores[0] > 0.05:  # Lowered threshold
+        combined_text = " ".join(chunks[:2]).lower()
+        matches = sum(1 for w in query_words if w in combined_text)
+        if matches >= 1:
+            return True
+    
+    # 3. Check if query keywords exist in any policy text
+    all_policy_text = " ".join(st.session_state.policy_texts.values()).lower()
+    keyword_matches = sum(1 for w in query_words if w in all_policy_text)
+    if keyword_matches >= 2:  # At least 2 keywords found
+        return True
+    
+    return False
 
 def format_policy_response(query, context, is_followup, client):
     """Use OpenAI to format policy content - STRICTLY no external knowledge"""
@@ -594,7 +619,7 @@ def process_response(query):
     # 2. Search policy
     chunks, scores = search_policy(query)
     
-    # 3. Check if actually in policy (strict)
+    # 3. Check if actually in policy (strict but includes filename matching)
     if not is_in_policy_content(query, chunks, scores):
         st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
         st.session_state.show_typing = False
