@@ -29,7 +29,6 @@ st.markdown("""
     
     * { font-family: 'Inter', sans-serif; }
     
-    /* Remove all extra spacing */
     .block-container {
         padding-top: 0.5rem !important;
         padding-bottom: 0.5rem !important;
@@ -76,11 +75,11 @@ st.markdown("""
         opacity: 0.95;
     }
     
-    .faq-section {
+    .policy-links-section {
         margin-bottom: 1rem;
     }
     
-    .faq-title {
+    .policy-links-title {
         font-size: 0.9rem;
         font-weight: 600;
         color: #4a5568;
@@ -88,22 +87,23 @@ st.markdown("""
         text-align: center;
     }
     
-    .faq-button {
-        background: #edf2f7;
+    .policy-list {
+        background: #f7fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 0.6rem;
-        margin: 0.25rem 0;
-        font-size: 0.85rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-align: left;
-        width: 100%;
+        padding: 1rem;
+        margin-bottom: 1rem;
     }
     
-    .faq-button:hover {
-        background: #e2e8f0;
-        border-color: #c53030;
+    .policy-item {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 0.9rem;
+        color: #2d3748;
+    }
+    
+    .policy-item:last-child {
+        border-bottom: none;
     }
     
     .chat-container {
@@ -248,14 +248,13 @@ st.markdown("""
     }
     
     /* Hide ALL unwanted elements */
-    .stDeployButton, #MainMenu, footer, header, .stSpinner {
+    .stDeployButton, #MainMenu, footer, header, .stSpinner, [data-testid="stSidebar"] {
         display: none !important;
         visibility: hidden !important;
     }
     
-    /* Sidebar styling - NO STATS */
-    .css-1d391kg, .css-163ttbj {
-        background-color: #f7fafc;
+    section[data-testid="stSidebar"] {
+        display: none !important;
     }
     
     @media (max-width: 768px) {
@@ -279,7 +278,7 @@ def init_session_state():
         'openai_client': None,
         'show_typing': False,
         'policy_texts': {},
-        'faq_questions': [],
+        'policy_files': [],
         'input_counter': 0,
         'last_query': ''
     }
@@ -347,53 +346,6 @@ def search_policy(query, top_k=5):
     chunks = [st.session_state.policy_chunks[i] for i in top_indices]
     scores = [similarities[i] for i in top_indices]
     return chunks, scores
-
-# ============== EXTRACT FAQ FROM POLICIES ==============
-
-def extract_faq_from_policies():
-    """Dynamically extract FAQ questions from actual policy content"""
-    faqs = []
-    all_text = " ".join(st.session_state.policy_texts.values()).lower()
-    
-    # Map keywords to questions based on actual policy content
-    faq_mapping = [
-        (r'casual leave', 'How many casual leaves do I have per year?'),
-        (r'sick leave|medical leave', 'How many sick leaves can I take?'),
-        (r'annual leave|privilege leave|earned leave', 'What is my annual leave entitlement?'),
-        (r'maternity leave', 'What is the maternity leave policy?'),
-        (r'paternity leave', 'What is the paternity leave policy?'),
-        (r'notice period|resignation', 'What is the notice period policy?'),
-        (r'probation', 'What is the probation period?'),
-        (r'confirmation', 'When will I be confirmed?'),
-        (r'working hours|office hours|shift timing', 'What are the working hours?'),
-        (r'attendance|biometric|punch', 'What is the attendance policy?'),
-        (r'reimbursement|medical claim|expense', 'How to claim medical reimbursement?'),
-        (r'code of conduct|discipline', 'What is the code of conduct?'),
-        (r'dress code|uniform', 'What is the dress code policy?'),
-        (r'increment|appraisal|performance', 'How does the appraisal process work?'),
-        (r'gratuity', 'What is the gratuity policy?'),
-        (r'provident fund|pf', 'What is the PF policy?'),
-        (r'insurance|mediclaim|health', 'What insurance benefits are provided?'),
-    ]
-    
-    for pattern, question in faq_mapping:
-        if re.search(pattern, all_text) and question not in faqs:
-            faqs.append(question)
-    
-    # If less than 5, add generic HR questions
-    defaults = [
-        'How many casual leaves do I have per year?',
-        'What is the notice period policy?',
-        'How do I apply for leave?',
-        'What are the working hours?',
-        'How to claim medical reimbursement?'
-    ]
-    
-    for d in defaults:
-        if d not in faqs:
-            faqs.append(d)
-    
-    return faqs[:6]
 
 # ============== OPENAI SETUP ==============
 
@@ -539,21 +491,26 @@ def show_welcome():
         </div>
     """, unsafe_allow_html=True)
 
-def show_faq_buttons():
-    """Show dynamic FAQ buttons from actual policies"""
-    if not st.session_state.faq_questions:
+def show_policy_links():
+    """Show available policy documents (replacing FAQ)"""
+    if not st.session_state.policy_files:
         return
     
-    st.markdown('<div class="faq-section">', unsafe_allow_html=True)
-    st.markdown('<div class="faq-title">💡 Frequently Asked Questions</div>', unsafe_allow_html=True)
+    st.markdown('<div class="policy-links-section">', unsafe_allow_html=True)
+    st.markdown('<div class="policy-links-title">📋 Available Policy Documents</div>', unsafe_allow_html=True)
     
-    # Create 2 columns for FAQ buttons
-    cols = st.columns(2)
-    for i, question in enumerate(st.session_state.faq_questions[:6]):
-        with cols[i % 2]:
-            if st.button(question, key=f"faq_{i}", use_container_width=True):
-                handle_query(question)
+    # Format policy filenames nicely
+    policy_names = []
+    for pdf in st.session_state.policy_files:
+        # Remove .pdf and replace underscores/hyphens with spaces
+        name = pdf.name.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title()
+        policy_names.append(name)
     
+    # Display as styled list
+    st.markdown('<div class="policy-list">', unsafe_allow_html=True)
+    for name in sorted(policy_names):
+        st.markdown(f'<div class="policy-item">📄 {name}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 def display_chat():
@@ -623,53 +580,7 @@ def show_contact():
         </div>
     """, unsafe_allow_html=True)
 
-def show_sidebar():
-    """Sidebar with FAQ only - NO STATS"""
-    with st.sidebar:
-        st.markdown("""
-            <div style="text-align: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0;">
-                <div style="font-size: 1.3rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">SPECTRON</div>
-                <div style="font-size: 0.75rem; color: #718096;">HR Assistant</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("### ❓ Quick Questions")
-        
-        for faq in st.session_state.faq_questions[:5]:
-            if st.button(faq, key=f"side_faq_{faq[:20]}", use_container_width=True):
-                handle_query(faq)
-        
-        st.markdown("---")
-        
-        st.markdown("""
-            <div style="background: #f7fafc; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem;">
-                <strong style="color: #c53030;">HR Department</strong><br>
-                📧 hrd@spectron.in<br>
-                📞 +91 22 4606 6960<br>
-                Ext. 247<br>
-                🕐 Mon-Sat: 10AM-6PM
-            </div>
-        """, unsafe_allow_html=True)
-
 # ============== QUERY HANDLING ==============
-
-def handle_query(query):
-    """Process user query"""
-    if not query or not query.strip():
-        return
-    
-    query = query.strip()
-    st.session_state.last_query = query
-    
-    # Add user message
-    st.session_state.chat_history.append({"role": "user", "content": query})
-    st.session_state.show_typing = True
-    
-    # Clear input by incrementing counter
-    st.session_state.input_counter += 1
-    
-    # Process response
-    process_response(query)
 
 def process_response(query):
     """Generate response based on flowchart logic"""
@@ -678,7 +589,6 @@ def process_response(query):
     if is_greeting(query):
         st.session_state.chat_history.append({"role": "assistant", "content": "GREETING"})
         st.session_state.show_typing = False
-        st.rerun()
         return
     
     # 2. Search policy
@@ -688,7 +598,6 @@ def process_response(query):
     if not is_in_policy_content(query, chunks, scores):
         st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
         st.session_state.show_typing = False
-        st.rerun()
         return
     
     # 4. Build context from relevant chunks
@@ -715,7 +624,6 @@ def process_response(query):
         })
     
     st.session_state.show_typing = False
-    st.rerun()
 
 # ============== MAIN ==============
 
@@ -729,16 +637,13 @@ def main():
             st.session_state.policy_chunks = chunks
             st.session_state.policy_sources = sources
             st.session_state.policy_texts = policy_texts
+            st.session_state.policy_files = pdf_files
             st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
             st.session_state.policies_loaded = True
-            st.session_state.faq_questions = extract_faq_from_policies()
     
     # Setup OpenAI
     if st.session_state.openai_client is None:
         st.session_state.openai_client = setup_openai()
-    
-    # Sidebar (NO STATS)
-    show_sidebar()
     
     # Main content
     show_logo()
@@ -748,14 +653,29 @@ def main():
     if not st.session_state.chat_history:
         show_welcome()
     
-    # FAQ buttons from actual policies
-    show_faq_buttons()
+    # Policy links (replacing FAQ)
+    show_policy_links()
     
     # Chat display (NO EMPTY STATE)
     display_chat()
     
     if st.session_state.show_typing:
         show_typing()
+    
+    # CHECK FOR PENDING QUERY (from Enter key or button)
+    if 'pending_query' in st.session_state and st.session_state.pending_query:
+        query = st.session_state.pending_query
+        st.session_state.pending_query = None  # Clear it
+        
+        # Add user message and show typing
+        st.session_state.chat_history.append({"role": "user", "content": query})
+        st.session_state.show_typing = True
+        
+        # Process response
+        process_response(query)
+        
+        # Rerun to update UI
+        st.rerun()
     
     # Input area - AUTO SUBMIT ON ENTER + AUTO CLEAR
     st.markdown('<div class="input-area">', unsafe_allow_html=True)
@@ -767,19 +687,29 @@ def main():
     col1, col2 = st.columns([5, 1])
     
     with col1:
-        # Text input with on_change for Enter key
+        # Text input - on_change sets pending_query, NO rerun in callback
+        def on_input_change():
+            val = st.session_state.get(input_key, "").strip()
+            if val:
+                st.session_state.pending_query = val
+                st.session_state.input_counter += 1  # Clear input next run
+        
         st.text_input(
             "Ask about HR policies...",
             key=input_key,
             placeholder="E.g., How many casual leaves do I have?",
             label_visibility="collapsed",
-            on_change=lambda: handle_query(st.session_state.get(input_key, ""))
+            on_change=on_input_change
         )
     
     with col2:
-        # Ask button
+        # Ask button - also sets pending_query
         if st.button("🚀 Ask", use_container_width=True, type="primary"):
-            handle_query(st.session_state.get(input_key, ""))
+            val = st.session_state.get(input_key, "").strip()
+            if val:
+                st.session_state.pending_query = val
+                st.session_state.input_counter += 1
+                st.rerun()  # Rerun immediately for button
     
     # Action buttons
     col3, col4 = st.columns([1, 1])
