@@ -87,19 +87,39 @@ st.markdown("""
         text-align: center;
     }
     
-    .policy-list {
+    .policy-list-container {
         background: #f7fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 1rem;
+        padding: 0.5rem;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .policy-list-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .policy-list-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    
+    .policy-list-container::-webkit-scrollbar-thumb {
+        background: #c53030;
+        border-radius: 4px;
     }
     
     .policy-item {
-        padding: 0.5rem 0;
+        padding: 0.5rem 0.75rem;
         border-bottom: 1px solid #e2e8f0;
         font-size: 0.9rem;
         color: #2d3748;
+        transition: background 0.2s ease;
+    }
+    
+    .policy-item:hover {
+        background: #edf2f7;
     }
     
     .policy-item:last-child {
@@ -517,7 +537,7 @@ def show_welcome():
     """, unsafe_allow_html=True)
 
 def show_policy_links():
-    """Show available policy documents (replacing FAQ)"""
+    """Show available policy documents with scrolling (replacing FAQ)"""
     if not st.session_state.policy_files:
         return
     
@@ -531,8 +551,8 @@ def show_policy_links():
         name = pdf.name.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title()
         policy_names.append(name)
     
-    # Display as styled list
-    st.markdown('<div class="policy-list">', unsafe_allow_html=True)
+    # Display as scrollable list
+    st.markdown('<div class="policy-list-container">', unsafe_allow_html=True)
     for name in sorted(policy_names):
         st.markdown(f'<div class="policy-item">📄 {name}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -678,7 +698,7 @@ def main():
     if not st.session_state.chat_history:
         show_welcome()
     
-    # Policy links (replacing FAQ)
+    # Policy links (replacing FAQ) - NOW WITH SCROLLING
     show_policy_links()
     
     # Chat display (NO EMPTY STATE)
