@@ -87,19 +87,39 @@ st.markdown("""
         text-align: center;
     }
     
-    .policy-list {
+    .policy-list-container {
         background: #f7fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 1rem;
+        padding: 0.5rem;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .policy-list-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .policy-list-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    
+    .policy-list-container::-webkit-scrollbar-thumb {
+        background: #c53030;
+        border-radius: 4px;
     }
     
     .policy-item {
-        padding: 0.5rem 0;
+        padding: 0.5rem 0.75rem;
         border-bottom: 1px solid #e2e8f0;
         font-size: 0.9rem;
         color: #2d3748;
+        transition: background 0.2s ease;
+    }
+    
+    .policy-item:hover {
+        background: #edf2f7;
     }
     
     .policy-item:last-child {
@@ -382,40 +402,100 @@ I can help you with HR policies including:
 
 Please ask me about any HR policy!"""
 
-def is_in_policy_content(query, chunks, scores):
-    """Check if query matches policy content OR filename - FIXED VERSION"""
+def find_matching_policy_file(query):
+    """Find the best matching policy file based on query - LENIENT MATCHING"""
+    query_lower = query.lower()
+    query_normalized = query_lower.replace(' ', '').replace('-', '').replace('_', '')
+    query_words = set(w for w in query_lower.split() if len(w) > 2)
     
-    # Normalize query for matching
+    best_match = None
+    best_score = 0
+    
+    for pdf_file in st.session_state.policy_files:
+        filename = pdf_file.name.lower().replace('.pdf', '')
+        filename_normalized = filename.replace(' ', '').replace('-', '').replace('_', '')
+        
+        score = 0
+        
+        # Check for exact substring match (most lenient)
+        if query_normalized in filename_normalized:
+            score += 10
+        
+        # Check for word matches in filename
+        filename_words = set(filename.split())
+        matching_words = query_words.intersection(filename_words)
+        score += len(matching_words) * 3
+        
+        # Check for partial word matches (e.g., "posh" in "poshpolicy")
+        for qw in query_words:
+            if qw in filename_normalized:
+                score += 2
+        
+        # Check reverse: filename words in query
+        for fw in filename_words:
+            if fw in query_normalized and len(fw) > 3:
+                score += 1
+        
+        if score > best_score:
+            best_score = score
+            best_match = pdf_file.name
+    
+    # Return match if score is reasonable (lenient threshold)
+    return best_match if best_score >= 2 else None
+
+def get_chunks_from_specific_policy(policy_filename, query, top_k=5):
+    """Get chunks specifically from the identified policy file"""
+    specific_chunks = []
+    
+    # Get all chunks from this specific policy
+    for i, source in enumerate(st.session_state.policy_sources):
+        if source == policy_filename:
+            specific_chunks.append(st.session_state.policy_chunks[i])
+    
+    if not specific_chunks:
+        return [], []
+    
+    # If we have the vectorizer, rank chunks by relevance to query
+    if st.session_state.vectorizer:
+        # Create temporary vectorizer for just these chunks
+        temp_vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        temp_matrix = temp_vectorizer.fit_transform(specific_chunks)
+        query_vec = temp_vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, temp_matrix).flatten()
+        
+        # Get top chunks
+        top_indices = similarities.argsort()[-top_k:][::-1]
+        ranked_chunks = [specific_chunks[i] for i in top_indices]
+        scores = [similarities[i] for i in top_indices]
+        return ranked_chunks, scores
+    
+    return specific_chunks[:top_k], [0.5] * min(top_k, len(specific_chunks))
+
+def is_in_policy_content(query, chunks, scores, specific_policy=None):
+    """Check if query matches policy content - with specific policy priority"""
+    
+    # If we have a specific policy match, be more lenient
+    if specific_policy:
+        # Just check if we got chunks from that policy
+        if chunks:
+            return True
+        return False
+    
+    # Otherwise use normal strict checking
     query_normalized = query.lower().replace(' ', '').replace('-', '').replace('_', '')
     query_words = set(w.lower() for w in query.split() if len(w) > 3)
     
-    # 1. Check if query matches any policy filename
-    for pdf_file in st.session_state.policy_files:
-        filename_normalized = pdf_file.name.lower().replace('.pdf', '').replace(' ', '').replace('-', '').replace('_', '')
-        # Check if significant parts of query match filename
-        if any(word in filename_normalized for word in query_words):
-            return True
-        # Check if filename contains query parts
-        if len(query_normalized) > 5 and query_normalized in filename_normalized:
-            return True
-        # Check reverse: if filename keywords are in query
-        filename_words = set(filename_normalized.split())
-        if len(filename_words) > 0:
-            match_count = sum(1 for fw in filename_words if fw in query_normalized and len(fw) > 3)
-            if match_count >= 1:
-                return True
-    
-    # 2. Check semantic similarity in content
-    if scores and scores[0] > 0.05:  # Lowered threshold
+    # Check semantic similarity in content
+    if scores and scores[0] > 0.05:
         combined_text = " ".join(chunks[:2]).lower()
         matches = sum(1 for w in query_words if w in combined_text)
         if matches >= 1:
             return True
     
-    # 3. Check if query keywords exist in any policy text
+    # Check if query keywords exist in any policy text
     all_policy_text = " ".join(st.session_state.policy_texts.values()).lower()
     keyword_matches = sum(1 for w in query_words if w in all_policy_text)
-    if keyword_matches >= 2:  # At least 2 keywords found
+    if keyword_matches >= 2:
         return True
     
     return False
@@ -427,25 +507,26 @@ def format_policy_response(query, context, is_followup, client):
 NEVER use external knowledge. If answer not in context, say "NOT_IN_POLICY"."""
 
         if is_followup:
-            user_prompt = f"""This is a FOLLOW-UP question. Answer ONLY using the policy context.
+            user_prompt = f"""This is a FOLLOW-UP question. Give a DETAILED answer using ONLY the policy context.
 
 Policy Context:
-{context[:1500]}
+{context[:2000]}
 
 Follow-up Question: {query}
 
 Instructions:
 1. Answer ONLY if information exists in the context above
 2. If not found, respond with exactly: NOT_IN_POLICY
-3. Be concise (2-3 sentences max)
+3. Give DETAILED procedure/information (don't be brief)
 4. No external knowledge allowed
+5. Format clearly with bullet points or sections
 
 Answer:"""
         else:
-            user_prompt = f"""Format this policy information clearly.
+            user_prompt = f"""Format this policy information clearly. Use detailed or simple format based on the content available.
 
 Policy Context:
-{context[:2000]}
+{context[:2500]}
 
 Question: {query}
 
@@ -457,9 +538,10 @@ Instructions:
    - **Application**: How to apply/request
    - **Approval**: Who approves
    - **Important Notes**: Key restrictions or rules
-2. Use bullet points
-3. If information is missing for a section, skip it
-4. If NO relevant information, say: NOT_IN_POLICY
+2. If the content is brief, a simple paragraph is fine
+3. Use bullet points for lists
+4. If information is missing for a section, skip it
+5. If NO relevant information, say: NOT_IN_POLICY
 
 Answer:"""
         
@@ -469,8 +551,8 @@ Answer:"""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.0,  # Zero temperature for strict adherence
-            max_tokens=500
+            temperature=0.0,
+            max_tokens=800
         )
         
         answer = response.choices[0].message.content.strip()
@@ -517,7 +599,7 @@ def show_welcome():
     """, unsafe_allow_html=True)
 
 def show_policy_links():
-    """Show available policy documents (replacing FAQ)"""
+    """Show available policy documents with scrolling (replacing FAQ)"""
     if not st.session_state.policy_files:
         return
     
@@ -531,8 +613,8 @@ def show_policy_links():
         name = pdf.name.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title()
         policy_names.append(name)
     
-    # Display as styled list
-    st.markdown('<div class="policy-list">', unsafe_allow_html=True)
+    # Display as scrollable list
+    st.markdown('<div class="policy-list-container">', unsafe_allow_html=True)
     for name in sorted(policy_names):
         st.markdown(f'<div class="policy-item">📄 {name}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -608,7 +690,7 @@ def show_contact():
 # ============== QUERY HANDLING ==============
 
 def process_response(query):
-    """Generate response based on flowchart logic"""
+    """Generate response based on flowchart logic with SPECIFIC POLICY PRIORITY"""
     
     # 1. Check if greeting
     if is_greeting(query):
@@ -616,17 +698,33 @@ def process_response(query):
         st.session_state.show_typing = False
         return
     
-    # 2. Search policy
-    chunks, scores = search_policy(query)
+    # 2. Try to find specific matching policy file first (LENIENT)
+    specific_policy = find_matching_policy_file(query)
     
-    # 3. Check if actually in policy (strict but includes filename matching)
-    if not is_in_policy_content(query, chunks, scores):
-        st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
-        st.session_state.show_typing = False
-        return
+    chunks = []
+    scores = []
     
-    # 4. Build context from relevant chunks
-    context = "\n\n".join(chunks[:3])
+    if specific_policy:
+        # 3a. Get chunks from SPECIFIC policy file
+        chunks, scores = get_chunks_from_specific_policy(specific_policy, query)
+        
+        # If specific policy found, be lenient and use its content
+        if chunks:
+            context = "\n\n".join(chunks[:5])  # Use more chunks from specific policy
+        else:
+            specific_policy = None  # Fall back to general search
+    
+    if not specific_policy:
+        # 3b. General search across all policies
+        chunks, scores = search_policy(query)
+        
+        # 4. Check if actually in policy (strict)
+        if not is_in_policy_content(query, chunks, scores):
+            st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
+            st.session_state.show_typing = False
+            return
+        
+        context = "\n\n".join(chunks[:3])
     
     # 5. Check if follow-up
     user_messages = [m for m in st.session_state.chat_history if m['role'] == 'user']
@@ -678,7 +776,7 @@ def main():
     if not st.session_state.chat_history:
         show_welcome()
     
-    # Policy links (replacing FAQ)
+    # Policy links (replacing FAQ) - NOW WITH SCROLLING
     show_policy_links()
     
     # Chat display (NO EMPTY STATE)
