@@ -1,6 +1,6 @@
 """
-HR Policy Chatbot for Spectron - Modern UI Version
-Clean, professional interface without suggestion chips
+HR Policy Chatbot for Spectron - Strict Citation Control Version
+Ensures exact policy name matching and prevents incorrect citations
 """
 
 import streamlit as st
@@ -27,12 +27,8 @@ st.markdown("""
     
     * { font-family: 'Inter', sans-serif; }
     
-    .block-container {
-        padding: 0 !important;
-        max-width: 100% !important;
-    }
+    .block-container { padding: 0 !important; max-width: 100% !important; }
     
-    /* Header Section */
     .header-bar {
         background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
         padding: 1.5rem 2rem;
@@ -40,46 +36,16 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: space-between;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
     
-    .header-left {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-    }
+    .header-left { display: flex; align-items: center; gap: 1rem; }
+    .logo-icon { font-size: 2.5rem; }
+    .header-title { font-size: 1.8rem; font-weight: 700; margin: 0; }
+    .header-subtitle { font-size: 0.95rem; opacity: 0.9; margin: 0; font-weight: 300; }
+    .header-contact { text-align: right; font-size: 0.85rem; opacity: 0.9; }
     
-    .logo-icon {
-        font-size: 2.5rem;
-    }
+    .main-layout { display: flex; height: calc(100vh - 100px); overflow: hidden; }
     
-    .header-title {
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin: 0;
-    }
-    
-    .header-subtitle {
-        font-size: 0.95rem;
-        opacity: 0.9;
-        margin: 0;
-        font-weight: 300;
-    }
-    
-    .header-contact {
-        text-align: right;
-        font-size: 0.85rem;
-        opacity: 0.9;
-    }
-    
-    /* Main Layout */
-    .main-layout {
-        display: flex;
-        height: calc(100vh - 100px);
-        overflow: hidden;
-    }
-    
-    /* Left Sidebar - Policy Navigator */
     .policy-nav {
         width: 300px;
         background: #f8fafc;
@@ -104,21 +70,11 @@ st.markdown("""
         gap: 0.5rem;
     }
     
-    .nav-subtitle {
-        font-size: 0.85rem;
-        color: #64748b;
-        line-height: 1.4;
-    }
+    .nav-subtitle { font-size: 0.85rem; color: #64748b; line-height: 1.4; }
     
-    .policy-list {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1rem;
-    }
+    .policy-list { flex: 1; overflow-y: auto; padding: 1rem; }
     
-    .policy-category {
-        margin-bottom: 1.5rem;
-    }
+    .policy-category { margin-bottom: 1.5rem; }
     
     .category-title {
         font-size: 0.75rem;
@@ -151,11 +107,8 @@ st.markdown("""
         transform: translateX(4px);
     }
     
-    .policy-icon {
-        font-size: 1.25rem;
-    }
+    .policy-icon { font-size: 1.25rem; }
     
-    /* Right Chat Area */
     .chat-area {
         flex: 1;
         display: flex;
@@ -163,7 +116,6 @@ st.markdown("""
         background: white;
     }
     
-    /* Welcome Banner */
     .welcome-banner {
         background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
         border-bottom: 1px solid #bae6fd;
@@ -171,27 +123,10 @@ st.markdown("""
         text-align: center;
     }
     
-    .welcome-icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
-    }
+    .welcome-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .welcome-title { font-size: 1.5rem; font-weight: 600; color: #1e3a5f; margin-bottom: 0.5rem; }
+    .welcome-text { color: #475569; font-size: 1rem; max-width: 600px; margin: 0 auto; line-height: 1.6; }
     
-    .welcome-title {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #1e3a5f;
-        margin-bottom: 0.5rem;
-    }
-    
-    .welcome-text {
-        color: #475569;
-        font-size: 1rem;
-        max-width: 600px;
-        margin: 0 auto;
-        line-height: 1.6;
-    }
-    
-    /* Chat Container */
     .chat-container {
         flex: 1;
         overflow-y: auto;
@@ -207,10 +142,7 @@ st.markdown("""
         max-width: 80%;
     }
     
-    .message-wrapper.user {
-        margin-left: auto;
-        flex-direction: row-reverse;
-    }
+    .message-wrapper.user { margin-left: auto; flex-direction: row-reverse; }
     
     .avatar {
         width: 40px;
@@ -223,13 +155,8 @@ st.markdown("""
         flex-shrink: 0;
     }
     
-    .avatar.bot {
-        background: #1e3a5f;
-    }
-    
-    .avatar.user {
-        background: #c53030;
-    }
+    .avatar.bot { background: #1e3a5f; }
+    .avatar.user { background: #c53030; }
     
     .message-bubble {
         padding: 1rem 1.25rem;
@@ -251,25 +178,15 @@ st.markdown("""
         border-bottom-right-radius: 4px;
     }
     
-    .message-meta {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        margin-top: 0.25rem;
-        padding: 0 0.5rem;
-    }
+    .message-meta { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; padding: 0 0.5rem; }
     
-    /* Input Area */
     .input-container {
         border-top: 1px solid #e2e8f0;
         padding: 1.5rem 2rem;
         background: white;
     }
     
-    .input-wrapper {
-        max-width: 900px;
-        margin: 0 auto;
-        position: relative;
-    }
+    .input-wrapper { max-width: 900px; margin: 0 auto; position: relative; }
     
     .stTextInput>div>div>input {
         border-radius: 12px;
@@ -284,116 +201,19 @@ st.markdown("""
         box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.1);
     }
     
-    .send-button {
-        position: absolute;
-        right: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        background: #c53030;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        width: 40px;
-        height: 40px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-    }
+    .empty-state { text-align: center; padding: 3rem; color: #94a3b8; }
+    .empty-icon { font-size: 4rem; margin-bottom: 1rem; opacity: 0.5; }
     
-    .send-button:hover {
-        background: #9b2c2c;
-        transform: translateY(-50%) scale(1.05);
-    }
-    
-    /* Typing Indicator */
-    .typing-indicator {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 1rem 1.25rem;
-        background: #f1f5f9;
-        border-radius: 16px;
-        border-bottom-left-radius: 4px;
-        width: fit-content;
-    }
-    
-    .typing-dot {
-        width: 8px;
-        height: 8px;
-        background: #1e3a5f;
-        border-radius: 50%;
-        animation: typing 1.4s infinite;
-    }
-    
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    
-    @keyframes typing {
-        0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-        30% { transform: translateY(-6px); opacity: 1; }
-    }
-    
-    /* Policy Citation Badge */
-    .citation-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: #dbeafe;
-        color: #1e40af;
-        padding: 0.375rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        margin-bottom: 0.75rem;
-    }
-    
-    /* Empty State */
-    .empty-state {
-        text-align: center;
-        padding: 3rem;
-        color: #94a3b8;
-    }
-    
-    .empty-icon {
-        font-size: 4rem;
-        margin-bottom: 1rem;
-        opacity: 0.5;
-    }
-    
-    /* Scrollbar Styling */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        .policy-nav {
-            display: none;
-        }
-    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============== INITIALIZATION ==============
 @st.cache_resource
 def get_openai_client():
-    """Initialize OpenAI client with API key from secrets or environment"""
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except:
@@ -404,10 +224,74 @@ def get_openai_client():
         return None
     return OpenAI(api_key=api_key)
 
+# ============== STRICT CITATION CONTROLLER ==============
+class CitationController:
+    """
+    Strictly controls policy citations to ensure accuracy.
+    Prevents mixing up policy names in responses.
+    """
+    
+    # Map policy file names to their exact citation names
+    POLICY_CITATION_MAP = {
+        'Sick Leave': 'Sick Leave Policy',
+        'Privilege Leave': 'Privilege Leave Policy', 
+        'Casual Leave': 'Casual Leave Policy',
+        'Annual Leave': 'Annual Leave Policy',
+        'Data Protection': 'Data Protection Policy',
+        'Travel Reimbursement Policy': 'Travel & Reimbursement Policy',
+        'Gratuity Policy': 'Gratuity Policy',
+        'Environment Policy': 'Environment Policy',
+        'Payment of Bonus Policy': 'Payment of Bonus Policy',
+        'ESIC Policy': 'ESIC Policy',
+        'Workplace Safety Policy': 'Workplace Safety Policy',
+        'At Will Employment': 'At-Will Employment Policy'
+    }
+    
+    @classmethod
+    def get_citation_name(cls, policy_name):
+        """Get the exact citation name for a policy"""
+        # Try exact match first
+        if policy_name in cls.POLICY_CITATION_MAP:
+            return cls.POLICY_CITATION_MAP[policy_name]
+        
+        # Try case-insensitive match
+        for key, value in cls.POLICY_CITATION_MAP.items():
+            if key.lower() in policy_name.lower() or policy_name.lower() in key.lower():
+                return value
+        
+        # Default: add "Policy" suffix if not present
+        if "policy" not in policy_name.lower():
+            return f"{policy_name} Policy"
+        return policy_name
+    
+    @classmethod
+    def enforce_single_citation(cls, response, correct_policy):
+        """
+        Force response to use only the correct policy citation.
+        Removes references to other policies.
+        """
+        correct_citation = cls.get_citation_name(correct_policy)
+        
+        # Common citation patterns to check
+        citation_patterns = [
+            r'Based on our [^,]+(,\s*[^,]+)*\s+policies?',
+            r'According to our [^,]+(,\s*[^,]+)*\s+policies?',
+            r'As per our [^,]+(,\s*[^,]+)*\s+policies?',
+            r'Our [^,]+(,\s*[^,]+)*\s+policies?\s+(state|indicate|specify|mention)'
+        ]
+        
+        # Replace multiple policy citations with single correct one
+        for pattern in citation_patterns:
+            response = re.sub(pattern, f'Based on our {correct_citation}', response, flags=re.IGNORECASE)
+        
+        # Clean up any remaining "and related policies" or similar
+        response = re.sub(r'\s+and related policies?', '', response, flags=re.IGNORECASE)
+        response = re.sub(r'\s*,\s*and\s+[^,]+policies?', '', response, flags=re.IGNORECASE)
+        
+        return response
+
 # ============== POLICY DATABASE ==============
 class PolicyDatabase:
-    """Handles loading and indexing of all HR policies"""
-    
     def __init__(self, policy_folder="policies"):
         self.policy_folder = Path(policy_folder)
         self.policies = {}
@@ -417,7 +301,6 @@ class PolicyDatabase:
         self.load_all_policies()
     
     def load_all_policies(self):
-        """Load all PDF policies from the folder"""
         if not self.policy_folder.exists():
             st.error(f"Policy folder '{self.policy_folder}' not found!")
             return
@@ -472,7 +355,6 @@ class PolicyDatabase:
         return results
     
     def get_categorized_policies(self):
-        """Group policies by category for the sidebar"""
         categories = {
             "Leave & Attendance": [],
             "Compensation & Benefits": [],
@@ -496,11 +378,45 @@ class PolicyDatabase:
         
         return {k: v for k, v in categories.items() if v}
 
-# ============== HR ASSISTANT ==============
+# ============== HR ASSISTANT WITH STRICT CITATION ==============
 class HRAssistant:
     def __init__(self, policy_db, client):
         self.db = policy_db
         self.client = client
+    
+    def determine_primary_policy(self, query, search_results):
+        """
+        Determine which single policy should be cited based on query and results.
+        """
+        query_lower = query.lower()
+        
+        # Check if query explicitly mentions a leave type
+        leave_keywords = {
+            'Privilege Leave': ['privilege', 'planned', 'vacation', 'holiday', 'annual leave', '2 weeks', 'two weeks'],
+            'Sick Leave': ['sick', 'medical', 'illness', 'doctor', 'health', 'unwell'],
+            'Casual Leave': ['casual', 'urgent', 'personal work', 'half day']
+        }
+        
+        # Score each policy type based on query keywords
+        scores = {}
+        for policy_type, keywords in leave_keywords.items():
+            score = sum(1 for kw in keywords if kw in query_lower)
+            if score > 0:
+                scores[policy_type] = score
+        
+        # If query explicitly indicates a policy type, use that
+        if scores:
+            primary_type = max(scores, key=scores.get)
+            # Find matching policy in results
+            for result in search_results:
+                if primary_type.lower() in result['policy_name'].lower():
+                    return result['policy_name']
+        
+        # Otherwise, use the top search result
+        if search_results:
+            return search_results[0]['policy_name']
+        
+        return "Company Policy"
     
     def generate_answer(self, query):
         if not self.client:
@@ -511,30 +427,44 @@ class HRAssistant:
         if not results:
             return self._handle_no_context()
         
-        context_parts = []
-        cited_policies = set()
+        # Determine the SINGLE correct policy to cite
+        primary_policy = self.determine_primary_policy(query, results)
+        correct_citation = CitationController.get_citation_name(primary_policy)
         
+        # Build context ONLY from the primary policy (not mixing policies)
+        primary_context = ""
         for result in results:
-            policy = result['policy_name']
-            cited_policies.add(policy)
-            context_parts.append(f"From {policy}:\n{result['content'][:1200]}")
+            if result['policy_name'] == primary_policy:
+                primary_context = result['content'][:2000]
+                break
         
-        combined_context = "\n\n".join(context_parts)
-        primary_policy = results[0]['policy_name']
+        # If no specific context from primary, use top result but will cite correctly
+        if not primary_context:
+            primary_context = results[0]['content'][:2000]
         
-        return self._create_response(query, combined_context, primary_policy, cited_policies)
+        return self._create_strict_response(query, primary_context, correct_citation)
     
-    def _create_response(self, query, context, primary_policy, all_policies):
-        system_prompt = f"""You are Spectron's HR Assistant. Answer based ONLY on provided policy context.
+    def _create_strict_response(self, query, context, correct_citation):
+        """
+        Create response with strict single-policy citation enforcement.
+        """
+        
+        system_prompt = f"""You are Spectron's HR Assistant. Answer based ONLY on the provided policy context.
 
-RULES:
-1. Start with: "Based on our {primary_policy}..."
-2. If multiple policies apply: "Based on our {primary_policy} and related policies..."
-3. Be concise but complete
-4. Include procedure steps if applicable
-5. Add disclaimer for complex situations
+CRITICAL CITATION RULE - FOLLOW EXACTLY:
+- You MUST start your response with: "Based on our {correct_citation},"
+- Use ONLY this exact citation: "{correct_citation}"
+- NEVER mention other policy names like Sick Leave, Casual Leave, etc. unless they are the correct citation
+- If the context mentions other leave types, do NOT cite them - only cite {correct_citation}
 
-Policies referenced: {', '.join(all_policies)}
+Answer Structure:
+1. Start with exact citation sentence
+2. Provide direct answer to the question
+3. Include procedure if applicable
+4. Add relevant notes/disclaimers
+
+Context from {correct_citation}:
+{context}
 """
         
         try:
@@ -542,17 +472,20 @@ Policies referenced: {', '.join(all_policies)}
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
+                    {"role": "user", "content": f"Question: {query}"}
                 ],
-                temperature=0.3,
+                temperature=0.2,  # Lower temperature for more strict adherence
                 max_tokens=800
             )
             
             answer = response.choices[0].message.content
             
-            # Ensure citation
-            if not any(phrase in answer for phrase in ["Based on our", "According to our"]):
-                answer = f"Based on our {primary_policy}, {answer}"
+            # Enforce correct citation post-generation
+            answer = CitationController.enforce_single_citation(answer, correct_citation)
+            
+            # Ensure citation is present
+            if not answer.startswith(f"Based on our {correct_citation}"):
+                answer = f"Based on our {correct_citation}, {answer}"
             
             return answer
             
@@ -591,7 +524,7 @@ def render_sidebar(policy_db):
     st.markdown("""
     <div class="nav-header">
         <div class="nav-title">📋 Policy Navigator</div>
-        <div class="nav-subtitle">Browse available policies or ask any question directly in the chat.</div>
+        <div class="nav-subtitle">Browse available policies or ask any question directly.</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -613,36 +546,32 @@ def render_sidebar(policy_db):
                 icon = "⚖️"
             
             st.markdown(f"""
-            <div class="policy-item" onclick="document.getElementById('chat-input').focus()">
+            <div class="policy-item">
                 <span class="policy-icon">{icon}</span>
                 <span>{policy}</span>
             </div>
             """, unsafe_allow_html=True)
     
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
 def render_chat_area(assistant):
     st.markdown('<div class="chat-area">', unsafe_allow_html=True)
     
-    # Welcome banner (only show if no messages)
     if 'messages' not in st.session_state or len(st.session_state.messages) == 0:
         st.markdown("""
         <div class="welcome-banner">
             <div class="welcome-icon">👋</div>
             <div class="welcome-title">Welcome to Spectron HR Support</div>
             <div class="welcome-text">
-                I'm here to help you with any questions about company policies, benefits, leave, 
-                compensation, workplace guidelines, and more. Just type your question below.
+                I'm here to help with any questions about company policies, benefits, leave, 
+                compensation, and more. Just type your question below.
             </div>
         </div>
         """, unsafe_allow_html=True)
     
-    # Initialize messages
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     
-    # Chat container
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
     if len(st.session_state.messages) == 0:
@@ -677,26 +606,17 @@ def render_chat_area(assistant):
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Input area
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     st.markdown('<div class="input-wrapper">', unsafe_allow_html=True)
     
     col1, col2 = st.columns([10, 1])
     with col1:
-        user_input = st.text_input(
-            "",
-            key="chat_input",
-            placeholder="Ask any HR question...",
-            label_visibility="collapsed"
-        )
+        user_input = st.text_input("", key="chat_input", placeholder="Ask any HR question...", label_visibility="collapsed")
     with col2:
         send_clicked = st.button("➤", key="send_btn", use_container_width=True)
     
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div></div></div>', unsafe_allow_html=True)
     
-    # Process message
     if send_clicked and user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         
@@ -710,12 +630,10 @@ def render_chat_area(assistant):
 def main():
     render_header()
     
-    # Initialize
     client = get_openai_client()
     policy_db = PolicyDatabase()
     assistant = HRAssistant(policy_db, client)
     
-    # Layout
     col1, col2 = st.columns([1, 3])
     
     with col1:
