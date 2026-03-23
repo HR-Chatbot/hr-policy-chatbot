@@ -1,6 +1,6 @@
 """
-HR Policy Chatbot for Spectron - Smart Suggestion Version
-Correctly suggests Privilege Leave for planned long leaves
+HR Policy Chatbot for Spectron - Universal Policy Q&A System
+Handles ANY employee questions about ANY HR policy with correct source attribution
 """
 
 import streamlit as st
@@ -11,6 +11,7 @@ from openai import OpenAI
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import json
 
 # ============== PAGE CONFIG ==============
 st.set_page_config(
@@ -114,6 +115,7 @@ st.markdown("""
         font-size: 0.9rem;
         color: #2d3748;
         transition: background 0.2s ease;
+        cursor: pointer;
     }
     
     .policy-item:hover {
@@ -285,618 +287,455 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    /* Hide ALL unwanted elements */
-    .stDeployButton, #MainMenu, footer, header, .stSpinner,
-    [data-testid="stSidebar"] {
-        display: none !important;
-        visibility: hidden !important;
+    .source-citation {
+        background: #ebf8ff;
+        border-left: 3px solid #3182ce;
+        padding: 0.5rem 0.75rem;
+        margin-top: 0.75rem;
+        border-radius: 0 6px 6px 0;
+        font-size: 0.85rem;
+        color: #2c5282;
+        font-style: italic;
     }
     
-    section[data-testid="stSidebar"] {
-        display: none !important;
+    .quick-questions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        justify-content: center;
     }
     
-    @media (max-width: 768px) {
-        .main-header { font-size: 1.5rem; }
-        .chat-message { max-width: 95%; font-size: 0.9rem; }
-        .welcome-card { padding: 1rem; }
+    .quick-chip {
+        background: #edf2f7;
+        border: 1px solid #e2e8f0;
+        padding: 0.4rem 0.8rem;
+        border-radius: 16px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #4a5568;
+    }
+    
+    .quick-chip:hover {
+        background: #c53030;
+        color: white;
+        border-color: #c53030;
+    }
+    
+    .disclaimer {
+        font-size: 0.8rem;
+        color: #718096;
+        text-align: center;
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        border-top: 1px solid #e2e8f0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============== INITIALIZATION ==============
-def init_session_state():
-    defaults = {
-        'chat_history': [],
-        'policy_chunks': [],
-        'policy_sources': [],
-        'vectorizer': None,
-        'tfidf_matrix': None,
-        'policies_loaded': False,
-        'openai_client': None,
-        'show_typing': False,
-        'policy_texts': {},
-        'policy_files': [],
-        'input_counter': 0,
-        'last_query': ''
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-# ============== PDF PROCESSING ==============
-def extract_text_from_pdf(pdf_path):
+@st.cache_resource
+def get_openai_client():
+    """Initialize OpenAI client with API key from secrets or environment"""
     try:
-        reader = PdfReader(pdf_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
-        return text
-    except:
-        return ""
-
-def chunk_text(text, chunk_size=400, overlap=80):
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i + chunk_size])
-        if len(chunk) > 40:
-            chunks.append(chunk)
-    return chunks
-
-def load_policies():
-    policies_dir = Path("policies")
-    if not policies_dir.exists():
-        return [], [], {}, []
-    
-    pdf_files = list(policies_dir.glob("*.pdf"))
-    all_chunks, chunk_sources = [], []
-    policy_texts = {}
-    
-    for pdf_file in pdf_files:
-        text = extract_text_from_pdf(pdf_file)
-        if text:
-            policy_texts[pdf_file.name] = text
-            chunks = chunk_text(text)
-            for chunk in chunks:
-                all_chunks.append(chunk)
-                chunk_sources.append(pdf_file.name)
-    
-    return all_chunks, chunk_sources, policy_texts, pdf_files
-
-def setup_vectorizer(chunks):
-    if not chunks:
-        return None, None
-    vectorizer = TfidfVectorizer(max_features=3000, stop_words='english', ngram_range=(1, 2))
-    tfidf_matrix = vectorizer.fit_transform(chunks)
-    return vectorizer, tfidf_matrix
-
-def search_policy(query, top_k=5):
-    """Search for relevant policy chunks"""
-    if st.session_state.vectorizer is None:
-        return [], []
-    
-    query_vec = st.session_state.vectorizer.transform([query])
-    similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
-    top_indices = similarities.argsort()[-top_k:][::-1]
-    
-    chunks = [st.session_state.policy_chunks[i] for i in top_indices]
-    scores = [similarities[i] for i in top_indices]
-    
-    return chunks, scores
-
-# ============== SMART POLICY DETECTION ==============
-def detect_leave_type(query):
-    """
-    Smart detection of which leave type to suggest based on query context.
-    Returns: 'privilege', 'sick', 'casual', or None
-    """
-    query_lower = query.lower()
-    
-    # Keywords indicating PLANNED leave = Privilege Leave
-    planned_indicators = [
-        'plan', 'planning', 'planned', 'advance', 'future', 'next month', 
-        'next week', 'upcoming', 'vacation', 'holiday', 'trip', 'travel',
-        'may', 'june', 'july', 'august', 'september', 'october', 
-        'november', 'december', 'january', 'february', 'march', 'april',
-        '2 weeks', '3 weeks', '1 week', 'weeks', 'month', 'long leave'
-    ]
-    
-    # Keywords indicating MEDICAL/URGENT = Sick Leave
-    sick_indicators = [
-        'sick', 'ill', 'illness', 'medical', 'doctor', 'hospital', 
-        'fever', 'health', 'unwell', 'not feeling', 'emergency',
-        'medical certificate', 'mc', 'consultation'
-    ]
-    
-    # Keywords indicating SHORT/CASUAL = Casual Leave
-    casual_indicators = [
-        'casual', 'personal work', 'urgent work', 'half day', 
-        'few hours', 'personal', 'family function', 'short'
-    ]
-    
-    planned_score = sum(1 for word in planned_indicators if word in query_lower)
-    sick_score = sum(1 for word in sick_indicators if word in query_lower)
-    casual_score = sum(1 for word in casual_indicators if word in query_lower)
-    
-    # Return the highest scoring type
-    scores = {'privilege': planned_score, 'sick': sick_score, 'casual': casual_score}
-    max_type = max(scores, key=scores.get)
-    
-    if scores[max_type] > 0:
-        return max_type
-    return None
-
-def find_best_policy_file(query, detected_type=None):
-    """
-    Find the best matching policy file with smart prioritization.
-    """
-    query_lower = query.lower()
-    query_normalized = query_lower.replace(' ', '').replace('-', '').replace('_', '')
-    query_words = set(w for w in query_lower.split() if len(w) > 2)
-    
-    best_match = None
-    best_score = 0
-    
-    # Priority order based on detected type
-    priority_policies = []
-    if detected_type == 'privilege':
-        priority_policies = ['privilege', 'leave']  # PL first
-    elif detected_type == 'sick':
-        priority_policies = ['sick', 'leave']
-    elif detected_type == 'casual':
-        priority_policies = ['casual', 'leave']
-    else:
-        priority_policies = ['leave', 'privilege', 'sick', 'casual']
-    
-    for pdf_file in st.session_state.policy_files:
-        filename = pdf_file.name.lower().replace('.pdf', '')
-        filename_normalized = filename.replace(' ', '').replace('-', '').replace('_', '')
-        
-        score = 0
-        
-        # Priority boost for detected type
-        for priority in priority_policies:
-            if priority in filename:
-                score += 15  # High priority
-                break
-        
-        # Check for exact substring match
-        if query_normalized in filename_normalized:
-            score += 10
-        
-        # Check for word matches in filename
-        filename_words = set(filename.split())
-        matching_words = query_words.intersection(filename_words)
-        score += len(matching_words) * 3
-        
-        # Check for partial word matches
-        for qw in query_words:
-            if qw in filename_normalized:
-                score += 2
-        
-        if score > best_score:
-            best_score = score
-            best_match = pdf_file.name
-    
-    return best_match if best_score >= 3 else None
-
-def get_chunks_from_specific_policy(policy_filename, query, top_k=5):
-    """Get chunks specifically from the identified policy file"""
-    specific_chunks = []
-    
-    for i, source in enumerate(st.session_state.policy_sources):
-        if source == policy_filename:
-            specific_chunks.append(st.session_state.policy_chunks[i])
-    
-    if not specific_chunks:
-        return [], []
-    
-    if st.session_state.vectorizer:
-        temp_vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
-        temp_matrix = temp_vectorizer.fit_transform(specific_chunks)
-        query_vec = temp_vectorizer.transform([query])
-        similarities = cosine_similarity(query_vec, temp_matrix).flatten()
-        
-        top_indices = similarities.argsort()[-top_k:][::-1]
-        ranked_chunks = [specific_chunks[i] for i in top_indices]
-        scores = [similarities[i] for i in top_indices]
-        
-        return ranked_chunks, scores
-    
-    return specific_chunks[:top_k], [0.5] * min(top_k, len(specific_chunks))
-
-def is_in_policy_content(query, chunks, scores):
-    """Check if query matches policy content"""
-    if not chunks:
-        return False
-    
-    query_words = set(w.lower() for w in query.split() if len(w) > 3)
-    
-    if scores and scores[0] > 0.03:
-        combined_text = " ".join(chunks[:2]).lower()
-        matches = sum(1 for w in query_words if w in combined_text)
-        if matches >= 1:
-            return True
-    
-    all_policy_text = " ".join(st.session_state.policy_texts.values()).lower()
-    keyword_matches = sum(1 for w in query_words if w in all_policy_text)
-    
-    if keyword_matches >= 1:
-        return True
-    
-    return False
-
-# ============== OPENAI SETUP ==============
-def setup_openai():
-    try:
-        api_key = st.secrets.get("OPENAI_API_KEY", None)
+        api_key = st.secrets["OPENAI_API_KEY"]
     except:
         api_key = os.getenv("OPENAI_API_KEY")
     
     if not api_key:
+        st.error("⚠️ OpenAI API key not found. Please set it in secrets or environment variables.")
         return None
+    return OpenAI(api_key=api_key)
+
+# ============== POLICY LOADING & INDEXING ==============
+class PolicyDatabase:
+    """Handles loading and indexing of all HR policies"""
     
-    try:
-        return OpenAI(api_key=api_key)
-    except:
-        return None
-
-def is_greeting(text):
-    """Check if text is a greeting"""
-    greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'namaste', 'hola', 'greetings']
-    text_lower = text.lower().strip()
-    return any(g in text_lower for g in greetings) or len(text_lower) < 3
-
-def get_smart_suggestion(query, context, detected_type, policy_name, client):
-    """
-    Generate a smart suggestive response based on detected leave type.
-    """
-    try:
-        # Map detected type to full name
-        type_names = {
-            'privilege': 'Privilege Leave',
-            'sick': 'Sick Leave',
-            'casual': 'Casual Leave'
-        }
-        suggested_type = type_names.get(detected_type, 'the appropriate leave')
+    def __init__(self, policy_folder="policies"):
+        self.policy_folder = Path(policy_folder)
+        self.policies = {}  # name -> content
+        self.sections = []  # list of (policy_name, section_text, metadata)
+        self.vectorizer = None
+        self.vectors = None
+        self.load_all_policies()
+    
+    def load_all_policies(self):
+        """Load all PDF policies from the folder"""
+        if not self.policy_folder.exists():
+            st.error(f"Policy folder '{self.policy_folder}' not found!")
+            return
         
-        system_prompt = f"""You are a STRICT HR Policy Assistant for Spectron.
-The user is asking about leave. Based on analysis, you should suggest {suggested_type}.
-Use ONLY the provided policy context. NEVER use external knowledge."""
-
-        user_prompt = f"""ANALYZE THE QUERY AND SUGGEST THE CORRECT LEAVE TYPE
-
-USER QUERY: {query}
-
-DETECTED LEAVE TYPE: {suggested_type}
-POLICY DOCUMENT: {policy_name}
-
-POLICY CONTEXT:
-{context[:2500]}
-
-INSTRUCTIONS:
-1. Start with a CLEAR SUGGESTION: "Based on our {policy_name}, you may apply for {suggested_type}..."
-2. Explain WHY this is the right choice (planned leave = PL, medical = SL, etc.)
-3. Provide the EXACT PROCEDURE from the policy
-4. Mention ELIGIBILITY and any CONDITIONS
-5. If {suggested_type} is NOT appropriate based on the policy, say: WRONG_TYPE
-6. Be specific and actionable - no generic welcomes
-
-EXAMPLE GOOD RESPONSE:
-"Based on our Privilege Leave Policy, you may apply for Privilege Leave for your planned 2-week absence in May.
-
-**Why Privilege Leave?**
-This is planned leave requested in advance, which falls under Privilege Leave.
-
-**Procedure:**
-1. [Steps from policy]
-2. [Steps from policy]
-
-**Important Notes:**
-- [Conditions from policy]"
-
-YOUR SUGGESTIVE RESPONSE:"""
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.0,
-            max_tokens=800
+        pdf_files = list(self.policy_folder.glob("*.pdf"))
+        
+        if not pdf_files:
+            st.warning("No PDF policies found in the policies folder.")
+            return
+        
+        for pdf_path in pdf_files:
+            try:
+                content = self.extract_pdf_text(pdf_path)
+                policy_name = pdf_path.stem.replace("_", " ").replace("-", " ")
+                self.policies[policy_name] = content
+                
+                # Split into chunks for better retrieval
+                self.chunk_policy(policy_name, content)
+                
+            except Exception as e:
+                st.error(f"Error loading {pdf_path}: {e}")
+        
+        # Build search index
+        self.build_index()
+    
+    def extract_pdf_text(self, pdf_path):
+        """Extract text from PDF"""
+        reader = PdfReader(str(pdf_path))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    
+    def chunk_policy(self, policy_name, content, chunk_size=1000, overlap=200):
+        """Split policy into overlapping chunks for better retrieval"""
+        # Split by sections (common headers)
+        section_pattern = r'\n(?=[A-Z][A-Z\s]{2,}\n|\d+\.\s+[A-Z])'
+        raw_sections = re.split(section_pattern, content)
+        
+        for i, section in enumerate(raw_sections):
+            if len(section.strip()) > 50:  # Ignore tiny fragments
+                self.sections.append({
+                    'policy_name': policy_name,
+                    'content': section.strip(),
+                    'section_num': i,
+                    'char_start': sum(len(s) for s in raw_sections[:i])
+                })
+    
+    def build_index(self):
+        """Build TF-IDF index for semantic search"""
+        if not self.sections:
+            return
+        
+        texts = [s['content'] for s in self.sections]
+        self.vectorizer = TfidfVectorizer(
+            max_features=5000,
+            stop_words='english',
+            ngram_range=(1, 2)
         )
+        self.vectors = self.vectorizer.fit_transform(texts)
+    
+    def search(self, query, top_k=3):
+        """Find most relevant policy sections for any query"""
+        if not self.sections or self.vectorizer is None:
+            return []
         
-        answer = response.choices[0].message.content.strip()
+        query_vec = self.vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, self.vectors).flatten()
         
-        if "WRONG_TYPE" in answer.upper() or len(answer) < 30:
-            return None
+        # Get top matches
+        top_indices = similarities.argsort()[-top_k:][::-1]
         
-        return answer
+        results = []
+        for idx in top_indices:
+            if similarities[idx] > 0.1:  # Threshold for relevance
+                results.append({
+                    **self.sections[idx],
+                    'score': similarities[idx]
+                })
         
-    except Exception as e:
-        return None
+        return results
+    
+    def get_policy_summary(self):
+        """Return list of available policies"""
+        return list(self.policies.keys())
+
+# ============== UNIVERSAL RESPONSE GENERATOR ==============
+class HRAssistant:
+    """Universal HR Q&A system that handles any policy question"""
+    
+    def __init__(self, policy_db, client):
+        self.db = policy_db
+        self.client = client
+        
+        # Policy category hints for better context understanding
+        self.category_hints = {
+            'leave': ['leave', 'vacation', 'absence', 'time off', 'sick', 'privilege', 'casual', 'annual'],
+            'compensation': ['salary', 'pay', 'wage', 'compensation', 'bonus', 'increment', 'raise', 'overtime'],
+            'conduct': ['behavior', 'misconduct', 'harassment', 'discipline', 'ethics', 'violation'],
+            'benefits': ['insurance', 'medical', 'health', 'pf', 'provident fund', 'gratuity', 'retirement'],
+            'attendance': ['attendance', 'punctuality', 'late', 'timing', 'hours', 'work hours'],
+            'recruitment': ['hiring', 'interview', 'recruitment', 'onboarding', 'joining', 'offer'],
+            'termination': ['resign', 'termination', 'firing', 'notice period', 'exit', 'separation'],
+            'performance': ['appraisal', 'performance', 'review', 'pms', 'rating', 'promotion'],
+            'training': ['training', 'learning', 'development', 'course', 'certification']
+        }
+    
+    def detect_category(self, query):
+        """Auto-detect which policy category the question belongs to"""
+        query_lower = query.lower()
+        scores = {}
+        
+        for category, keywords in self.category_hints.items():
+            score = sum(1 for kw in keywords if kw in query_lower)
+            if score > 0:
+                scores[category] = score
+        
+        return max(scores, key=scores.get) if scores else 'general'
+    
+    def generate_answer(self, query):
+        """Generate answer for ANY HR question"""
+        if not self.client:
+            return "System not configured properly. Please contact IT."
+        
+        # Search for relevant policy content
+        results = self.db.search(query, top_k=3)
+        
+        if not results:
+            return self._handle_no_context(query)
+        
+        # Build context from multiple policies if needed
+        context_parts = []
+        cited_policies = set()
+        
+        for result in results:
+            policy = result['policy_name']
+            cited_policies.add(policy)
+            context_parts.append(f"--- From {policy} ---\n{result['content'][:1500]}")
+        
+        combined_context = "\n\n".join(context_parts)
+        
+        # Determine primary policy for citation
+        primary_policy = results[0]['policy_name']
+        
+        # Generate appropriate response
+        return self._create_response(query, combined_context, primary_policy, cited_policies)
+    
+    def _create_response(self, query, context, primary_policy, all_policies):
+        """Create contextual response with proper citation"""
+        
+        category = self.detect_category(query)
+        
+        system_prompt = f"""You are Spectron's HR Assistant. Answer employee questions based ONLY on the provided policy context.
+
+CITATION RULES:
+1. ALWAYS cite the specific policy name: "Based on our {primary_policy}..."
+2. If multiple policies apply, mention: "Based on our {primary_policy} and related policies..."
+3. NEVER make up information not in the context
+4. If the answer isn't in the context, say so clearly
+
+RESPONSE STRUCTURE:
+1. **Direct Answer** - Clear, concise response with citation
+2. **Details** - Relevant specifics from policy
+3. **Procedure/Steps** - If applicable, numbered steps
+4. **Important Notes** - Key caveats or requirements
+5. **Contact** - "For further clarification, contact HR at hr@spectron.com"
+
+Question Category: {category}
+Available Policies: {', '.join(all_policies)}
+"""
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Context:\n{context}\n\nEmployee Question: {query}\n\nProvide a helpful, accurate response citing the correct policy."}
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            
+            answer = response.choices[0].message.content
+            
+            # Verify citation is present
+            if not any(phrase in answer for phrase in ["Based on our", "According to our", "As per our"]):
+                answer = f"Based on our {primary_policy}, {answer}"
+            
+            return answer
+            
+        except Exception as e:
+            return f"I apologize, I'm experiencing technical difficulties. Please contact HR directly at hr@spectron.com. (Error: {str(e)})"
+    
+    def _handle_no_context(self, query):
+        """Handle questions when no relevant policy is found"""
+        return """I don't have specific information about that in our current policy documents. 
+
+**Please contact HR directly:**
+- Email: hr@spectron.com
+- Phone: Ext. 2001
+- Visit: HR Department, 2nd Floor
+
+They'll be happy to assist you with your specific query."""
 
 # ============== UI COMPONENTS ==============
-def show_logo():
-    try:
-        logo_path = Path("Logo.jpg")
-        if logo_path.exists():
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image(str(logo_path), width=200)
-        else:
-            st.markdown("""
-                <div style="text-align: center; margin-bottom: 0.5rem;">
-                    <div style="font-size: 2rem; font-weight: 800; color: #c53030; letter-spacing: 3px;">SPECTRON</div>
-                    <div style="font-size: 0.8rem; color: #718096;">HR POLICY ASSISTANT</div>
-                </div>
-            """, unsafe_allow_html=True)
-    except:
-        st.markdown("""
-            <div style="text-align: center; margin-bottom: 0.5rem;">
-                <div style="font-size: 2rem; font-weight: 800; color: #c53030; letter-spacing: 3px;">SPECTRON</div>
-            </div>
-        """, unsafe_allow_html=True)
+def render_header():
+    st.markdown('<div class="main-header">💼 Spectron HR Assistant</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">24/7 Support for All Your HR Questions</div>', unsafe_allow_html=True)
 
-def show_welcome():
-    """Show welcome screen"""
+def render_welcome():
     st.markdown("""
-        <div class="welcome-card">
-            <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
-            <div class="welcome-text">
-                Ask me about Spectron's HR policies. I'll analyze our documents and suggest the best course of action.
-            </div>
+    <div class="welcome-card">
+        <div class="welcome-title">👋 Welcome to Spectron!</div>
+        <div class="welcome-text">
+            I'm your AI HR Assistant. I can help you with questions about:<br>
+            • Leave Policies (Sick, Privilege, Casual, etc.)<br>
+            • Compensation & Benefits<br>
+            • Attendance & Work Hours<br>
+            • Code of Conduct<br>
+            • Recruitment & Onboarding<br>
+            • And any other HR-related queries
         </div>
+    </div>
     """, unsafe_allow_html=True)
 
-def show_policy_links():
-    """Show available policy documents"""
-    if not st.session_state.policy_files:
-        return
+def render_quick_questions():
+    st.markdown('<div style="font-size: 0.9rem; color: #4a5568; margin-bottom: 0.5rem; text-align: center;">Try asking:</div>', unsafe_allow_html=True)
     
+    quick_qs = [
+        "How many privilege leaves do I get?",
+        "What's the notice period policy?",
+        "How do I claim medical insurance?",
+        "What is the dress code?",
+        "How is overtime calculated?",
+        "What are the working hours?",
+        "How do I apply for leave?",
+        "What's the probation period?"
+    ]
+    
+    cols = st.columns(4)
+    for i, q in enumerate(quick_qs):
+        with cols[i % 4]:
+            if st.button(q, key=f"quick_{i}", use_container_width=True):
+                return q
+    return None
+
+def render_policy_list(policy_db):
     st.markdown('<div class="policy-links-section">', unsafe_allow_html=True)
     st.markdown('<div class="policy-links-title">📋 Available Policy Documents</div>', unsafe_allow_html=True)
     
-    policy_names = []
-    for pdf in st.session_state.policy_files:
-        name = pdf.name.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title()
-        policy_names.append(name)
+    policies = policy_db.get_policy_summary()
     
     st.markdown('<div class="policy-list-container">', unsafe_allow_html=True)
-    for name in sorted(policy_names):
-        st.markdown(f'<div class="policy-item">📄 {name}</div>', unsafe_allow_html=True)
+    for policy in policies:
+        st.markdown(f'<div class="policy-item">📄 {policy}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-def display_chat():
-    """Display chat messages"""
-    if not st.session_state.chat_history:
-        return
+def render_chat_interface():
+    """Main chat interface"""
     
+    # Initialize session state
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+        # Add welcome message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Hello! I'm here to help with any HR-related questions. What would you like to know about?"
+        })
+    
+    # Chat container
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
-    for msg in st.session_state.chat_history:
-        if msg['role'] == 'user':
+    for message in st.session_state.messages:
+        if message["role"] == "user":
             st.markdown(f"""
-                <div class="chat-message user-message">
-                    <div class="message-header">👤 You</div>
-                    {msg['content']}
-                </div>
+            <div class="chat-message user-message">
+                <div class="message-header">You</div>
+                {message["content"]}
+            </div>
             """, unsafe_allow_html=True)
         else:
-            content = msg['content']
-            
-            if content == "DECLINE":
-                st.markdown("""
-                    <div class="chat-message bot-message">
-                        <div class="message-header">🤖 HR Assistant</div>
-                        <div class="decline-box">
-                            I don't have specific information about this in our policy documents.
-                            Please contact HR at <strong>hrd@spectron.in</strong> or <strong>+91 22 4606 6960 EXTN: 247</strong>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-            else:
-                formatted = content.replace('\n', '<br>')
-                st.markdown(f"""
-                    <div class="chat-message bot-message">
-                        <div class="message-header">🤖 HR Assistant</div>
-                        <div class="policy-answer">{formatted}</div>
-                    </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="chat-message bot-message">
+                <div class="message-header">HR Assistant</div>
+                <div class="policy-answer">{message["content"]}</div>
+            </div>
+            """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
-
-def show_typing():
-    st.markdown("""
-        <div class="typing-indicator">
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <span style="color: #718096; font-size: 0.8rem;">Analyzing policies...</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-def show_contact():
-    st.markdown("""
-        <div class="contact-card">
-            <div class="contact-title">📞 Contact HR</div>
-            <div><strong>Email:</strong> hrd@spectron.in</div>
-            <div><strong>Phone:</strong> +91 22 4606 6960 EXTN: 247</div>
-            <div><strong>Hours:</strong> Mon - Sat, 10 AM to 6 PM</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-# ============== QUERY HANDLING ==============
-def process_response(query):
-    """Generate SMART SUGGESTIVE response with correct leave type detection"""
-    
-    # Check if pure greeting
-    if is_greeting(query) and len(query.split()) <= 2:
-        welcome_response = """Hello! 👋 
-
-I'm your HR Policy Assistant. I can analyze Spectron's policy documents and suggest the best course of action.
-
-**For example:**
-- "I want to take 2 weeks leave in May, which leave should I apply for?"
-- "How do I claim travel reimbursement?"
-- "What is the notice period policy?"
-
-Please share your specific HR question!"""
-        
-        st.session_state.chat_history.append({"role": "assistant", "content": welcome_response})
-        st.session_state.show_typing = False
-        return
-    
-    # STEP 1: Detect leave type from query context
-    detected_type = detect_leave_type(query)
-    
-    # STEP 2: Find best policy file based on detected type
-    specific_policy = find_best_policy_file(query, detected_type)
-    
-    # STEP 3: Get chunks from the best policy
-    chunks = []
-    scores = []
-    
-    if specific_policy:
-        chunks, scores = get_chunks_from_specific_policy(specific_policy, query)
-    
-    # Fallback to general search if no specific policy found
-    if not chunks:
-        chunks, scores = search_policy(query)
-        specific_policy = None
-    
-    # STEP 4: Check if content is relevant
-    if not is_in_policy_content(query, chunks, scores):
-        st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
-        st.session_state.show_typing = False
-        return
-    
-    context = "\n\n".join(chunks[:5])
-    policy_name = specific_policy.replace('.pdf', '') if specific_policy else 'Policy'
-    
-    # STEP 5: Get smart suggestion from OpenAI
-    client = st.session_state.openai_client
-    if client:
-        response = get_smart_suggestion(query, context, detected_type, policy_name, client)
-        if response:
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-        else:
-            # Fallback if AI fails
-            fallback = f"""Based on our analysis of your query, you may apply for **{detected_type.upper() if detected_type else 'the appropriate'} Leave**.
-
-**Policy Reference:** {policy_name}
-
-**Key Information from Policy:**
-{context[:500]}...
-
-For complete details, please refer to the full policy document or contact HR at hrd@spectron.in"""
-            st.session_state.chat_history.append({"role": "assistant", "content": fallback})
-    else:
-        # No API - simple fallback
-        fallback = f"""Based on our {policy_name}, you may apply for **{detected_type.upper() if detected_type else 'appropriate'} Leave**.
-
-Please contact HR at hrd@spectron.in for detailed procedure."""
-        st.session_state.chat_history.append({"role": "assistant", "content": fallback})
-    
-    st.session_state.show_typing = False
-
-# ============== MAIN ==============
-def main():
-    init_session_state()
-    
-    # Load policies (SILENT)
-    if not st.session_state.policies_loaded:
-        chunks, sources, policy_texts, pdf_files = load_policies()
-        if chunks:
-            st.session_state.policy_chunks = chunks
-            st.session_state.policy_sources = sources
-            st.session_state.policy_texts = policy_texts
-            st.session_state.policy_files = pdf_files
-            st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
-            st.session_state.policies_loaded = True
-    
-    # Setup OpenAI
-    if st.session_state.openai_client is None:
-        st.session_state.openai_client = setup_openai()
-    
-    # Main content
-    show_logo()
-    st.markdown('<div class="sub-header">Your 24/7 AI-powered HR companion</div>', unsafe_allow_html=True)
-    
-    # Welcome (only if no chat)
-    if not st.session_state.chat_history:
-        show_welcome()
-    
-    # Policy links
-    show_policy_links()
-    
-    # Chat display
-    display_chat()
-    
-    if st.session_state.show_typing:
-        show_typing()
-    
-    # CHECK FOR PENDING QUERY
-    if 'pending_query' in st.session_state and st.session_state.pending_query:
-        query = st.session_state.pending_query
-        st.session_state.pending_query = None
-        
-        st.session_state.chat_history.append({"role": "user", "content": query})
-        st.session_state.show_typing = True
-        
-        process_response(query)
-        st.rerun()
     
     # Input area
     st.markdown('<div class="input-area">', unsafe_allow_html=True)
     
-    input_key = f"query_input_{st.session_state.input_counter}"
-    
-    col1, col2 = st.columns([5, 1])
+    col1, col2 = st.columns([6, 1])
     
     with col1:
-        def on_input_change():
-            val = st.session_state.get(input_key, "").strip()
-            if val:
-                st.session_state.pending_query = val
-                st.session_state.input_counter += 1
-        
-        st.text_input(
-            "Ask about HR policies...",
-            key=input_key,
-            placeholder="E.g., I want to take 2 weeks leave in May, which leave should I apply for?",
-            label_visibility="collapsed",
-            on_change=on_input_change
+        user_input = st.text_input(
+            "Ask your question...",
+            key="user_input",
+            placeholder="Type any HR question here...",
+            label_visibility="collapsed"
         )
     
     with col2:
-        if st.button("🚀 Ask", use_container_width=True, type="primary"):
-            val = st.session_state.get(input_key, "").strip()
-            if val:
-                st.session_state.pending_query = val
-                st.session_state.input_counter += 1
-                st.rerun()
-    
-    col3, col4 = st.columns([1, 1])
-    with col3:
-        if st.button("🔄 Clear", use_container_width=True):
-            st.session_state.chat_history = []
-            st.session_state.input_counter += 1
-            st.rerun()
+        send_button = st.button("Send", use_container_width=True, type="primary")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Contact card
-    show_contact()
+    return user_input if send_button and user_input else None
+
+# ============== MAIN APP ==============
+def main():
+    render_header()
     
-    # Footer
-    st.markdown("""
-        <div style="text-align: center; color: #a0aec0; font-size: 0.75rem; margin-top: 1rem;">
-            🕐 Available 24/7 | 🔒 Private & Secure | © 2025 Spectron
+    # Initialize systems
+    client = get_openai_client()
+    policy_db = PolicyDatabase()
+    assistant = HRAssistant(policy_db, client)
+    
+    # Layout
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        render_welcome()
+        render_policy_list(policy_db)
+        
+        st.markdown("""
+        <div class="contact-card">
+            <div class="contact-title">📞 Need Human Support?</div>
+            <div>HR Team: hr@spectron.com<br>Ext: 2001 | 2nd Floor</div>
         </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Quick questions
+        quick_q = render_quick_questions()
+        
+        # Chat interface
+        user_message = render_chat_interface()
+        
+        # Process input
+        if quick_q:
+            user_message = quick_q
+        
+        if user_message:
+            # Add user message
+            st.session_state.messages.append({"role": "user", "content": user_message})
+            
+            # Show typing indicator
+            with st.spinner(""):
+                st.markdown("""
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Generate response
+                response = assistant.generate_answer(user_message)
+                
+                # Add assistant response
+                st.session_state.messages.append({"role": "assistant", "content": response})
+            
+            # Rerun to update chat
+            st.rerun()
+    
+    # Footer disclaimer
+    st.markdown("""
+    <div class="disclaimer">
+        ⚠️ This AI assistant provides information based on company policies. 
+        For complex situations or policy interpretations, please consult with HR directly.
+    </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
