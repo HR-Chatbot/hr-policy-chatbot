@@ -6,7 +6,19 @@ Features: Policy-based answers only, Auto-scan all policies, Professional UI
 import streamlit as st
 import os
 from pathlib import Path
-from google import genai
+
+# Try different import methods for Google AI
+try:
+    from google import genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    try:
+        import google.generativeai as genai
+        GENAI_AVAILABLE = True
+    except ImportError:
+        GENAI_AVAILABLE = False
+        genai = None
+
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -322,7 +334,8 @@ def init_session_state():
         'genai_client': None,
         'show_typing': False,
         'show_welcome': True,
-        'policy_names': []  # Store policy filenames
+        'policy_names': [],
+        'api_available': GENAI_AVAILABLE
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -348,14 +361,12 @@ def chunk_text(text, chunk_size=1000, overlap=200):
     if not text:
         return []
     
-    # Split by paragraphs first, then by sentences if needed
     paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
     
     chunks = []
     current_chunk = ""
     
     for para in paragraphs:
-        # If paragraph is too long, split it
         if len(para) > chunk_size:
             words = para.split()
             temp_chunk = ""
@@ -376,7 +387,6 @@ def chunk_text(text, chunk_size=1000, overlap=200):
                     chunks.append(current_chunk.strip())
                 current_chunk = para + "\n\n"
     
-    # Add remaining content
     if current_chunk.strip():
         chunks.append(current_chunk.strip())
     
@@ -390,7 +400,6 @@ def load_policies():
         st.error("❌ Policies folder not found!")
         return [], [], [], []
     
-    # Get all PDF files (automatically includes new ones)
     pdf_files = sorted(list(policies_dir.glob("*.pdf")))
     
     if not pdf_files:
@@ -401,7 +410,6 @@ def load_policies():
     chunk_sources = []
     policy_names = []
     
-    # Silent loading (no progress bar shown to user)
     for pdf_file in pdf_files:
         text = extract_text_from_pdf(pdf_file)
         if text:
@@ -436,14 +444,12 @@ def find_relevant_chunks(query, top_k=5):
     query_vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(query_vec, st.session_state.tfidf_matrix).flatten()
     
-    # Get top-k indices
     top_indices = similarities.argsort()[-top_k:][::-1]
     
     relevant_chunks = [st.session_state.policy_chunks[i] for i in top_indices]
     sources = [st.session_state.policy_sources[i] for i in top_indices]
     scores = [similarities[i] for i in top_indices]
     
-    # Filter by relevance threshold
     filtered = [(chunk, src, score) for chunk, src, score in zip(relevant_chunks, sources, scores) if score > 0.05]
     
     if not filtered:
@@ -452,7 +458,10 @@ def find_relevant_chunks(query, top_k=5):
     return [f[0] for f in filtered], [f[1] for f in filtered], [f[2] for f in filtered]
     # ============== GEMINI AI SETUP ==============
 def setup_gemini():
-    """Setup Gemini API client"""
+    """Setup Gemini API client with fallback"""
+    if not GENAI_AVAILABLE:
+        return None
+    
     try:
         api_key = st.secrets.get("GEMINI_API_KEY", None)
     except:
@@ -462,29 +471,39 @@ def setup_gemini():
         return None
     
     try:
-        client = genai.Client(api_key=api_key)
-        return client
+        # Try new API first
+        if hasattr(genai, 'Client'):
+            client = genai.Client(api_key=api_key)
+            return {'type': 'new', 'client': client}
+        else:
+            # Fall back to old API
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.5-pro')
+            return {'type': 'old', 'model': model}
     except Exception as e:
         return None
 
-def get_gemini_response(query, context, sources, chat_history, client):
+def get_gemini_response(query, context, sources, chat_history, client_config):
     """
     Get response from Gemini based ONLY on policy documents.
-    If no relevant policy found, return contact HR message.
     """
+    if not client_config:
+        return {
+            "answer": "HR Assistant is currently unavailable. Please contact HR directly at hrd@spectron.in or call +91 22 4606 6960 EXTN: 247.",
+            "sources": [],
+            "has_context": False
+        }
+    
     try:
-        # Build conversation history (last 3 exchanges)
+        # Build conversation history
         history_text = ""
-        for msg in chat_history[-6:]:  # Last 3 exchanges (6 messages)
+        for msg in chat_history[-6:]:
             if msg['role'] == 'user':
                 history_text += f"Employee: {msg['content']}\n"
             else:
                 history_text += f"HR Assistant: {msg['content']}\n"
         
-        # Get unique source documents
-        unique_sources = list(dict.fromkeys(sources))  # Remove duplicates, keep order
-        
-        # Determine if we have meaningful context
+        unique_sources = list(dict.fromkeys(sources))
         has_relevant_context = len(context.strip()) > 50 and len(unique_sources) > 0
         
         if not has_relevant_context:
@@ -494,7 +513,6 @@ def get_gemini_response(query, context, sources, chat_history, client):
                 "has_context": False
             }
         
-        # Build strict prompt that enforces policy-only answers
         sources_list = "\n".join([f"- {src}" for src in unique_sources[:3]])
         
         prompt = f"""You are the HR Policy Assistant for Spectron. You MUST answer based ONLY on the provided policy documents.
@@ -527,13 +545,19 @@ INSTRUCTIONS:
 
 YOUR RESPONSE:"""
 
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=prompt
-        )
+        # Use appropriate API
+        if client_config['type'] == 'new':
+            response = client_config['client'].models.generate_content(
+                model="gemini-2.5-pro",
+                contents=prompt
+            )
+            answer = response.text
+        else:
+            response = client_config['model'].generate_content(prompt)
+            answer = response.text
         
         return {
-            "answer": response.text,
+            "answer": answer,
             "sources": unique_sources[:3],
             "has_context": True
         }
@@ -552,26 +576,16 @@ YOUR RESPONSE:"""
             "has_context": False
         }
 
-def process_query(query, client):
+def process_query(query, client_config):
     """Process user query and generate policy-based response"""
-    # Find relevant policy chunks
     relevant_chunks, sources, scores = find_relevant_chunks(query)
     
-    # Build context from relevant chunks
     context = "\n\n---\n\n".join([
-        f"[From: {src}]\n{chunk[:1500]}"  # Limit chunk size
+        f"[From: {src}]\n{chunk[:1500]}"
         for chunk, src, score in zip(relevant_chunks, sources, scores)
     ])
     
-    # Get AI response based on policy
-    if client:
-        result = get_gemini_response(query, context, sources, st.session_state.chat_history, client)
-    else:
-        result = {
-            "answer": "HR Assistant is currently unavailable. Please contact HR directly at hrd@spectron.in or call +91 22 4606 6960 EXTN: 247.",
-            "sources": [],
-            "has_context": False
-        }
+    result = get_gemini_response(query, context, sources, st.session_state.chat_history, client_config)
     
     return result
     # ============== UI COMPONENTS ==============
@@ -601,7 +615,7 @@ def show_logo():
         """, unsafe_allow_html=True)
 
 def show_welcome_screen():
-    """Show welcome screen with example questions based on actual policies"""
+    """Show welcome screen with example questions"""
     st.markdown("""
         <div class="welcome-card">
             <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
@@ -623,7 +637,7 @@ def show_welcome_screen():
 def display_chat_history():
     """Display chat messages"""
     if not st.session_state.chat_history:
-        return  # Don't show anything if no messages (removes "No messages yet")
+        return
     
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
@@ -638,7 +652,6 @@ def display_chat_history():
         else:
             content = message['content']
             
-            # Handle API quota exhausted
             if content == "API_QUOTA_EXHAUSTED":
                 st.markdown("""
                     <div class="chat-message bot-message">
@@ -654,7 +667,6 @@ def display_chat_history():
                     </div>
                 """, unsafe_allow_html=True)
             else:
-                # Regular message with optional source
                 msg_parts = content.split("||SOURCE||")
                 answer = msg_parts[0]
                 source_html = ""
@@ -705,7 +717,6 @@ def show_sidebar():
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
         
-        # Company branding
         st.markdown("""
             <div style="text-align: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e2e8f0;">
                 <div style="font-size: 1.5rem; font-weight: 700; color: #c53030; letter-spacing: 2px;">
@@ -717,7 +728,6 @@ def show_sidebar():
             </div>
         """, unsafe_allow_html=True)
         
-        # Stats
         st.markdown("### 📊 Policy Database")
         col1, col2 = st.columns(2)
         with col1:
@@ -735,11 +745,10 @@ def show_sidebar():
                 </div>
             """, unsafe_allow_html=True)
         
-        # Show loaded policies
         if st.session_state.policy_names:
             st.markdown("---")
             st.markdown("### 📋 Available Policies")
-            for policy in st.session_state.policy_names[:5]:  # Show first 5
+            for policy in st.session_state.policy_names[:5]:
                 clean_name = policy.replace('.pdf', '').replace('_', ' ')
                 st.markdown(f'<div style="font-size: 0.85rem; color: #4a5568; margin: 0.25rem 0;">• {clean_name}</div>', unsafe_allow_html=True)
             if len(st.session_state.policy_names) > 5:
@@ -747,7 +756,6 @@ def show_sidebar():
         
         st.markdown("---")
         
-        # FAQs
         st.markdown("### ❓ Quick Questions")
         faqs = [
             "How do I apply for leave?",
@@ -761,7 +769,6 @@ def show_sidebar():
         
         st.markdown("---")
         
-        # Contact info
         st.markdown("### 📞 Contact HR")
         st.markdown("""
             <div style="background: #f7fafc; padding: 1rem; border-radius: 12px; font-size: 0.9rem;">
@@ -780,15 +787,12 @@ def main():
     """Main application"""
     init_session_state()
     
-    # Header
     show_logo()
     st.markdown('<div class="sub-header">Your 24/7 Policy-Based HR Assistant</div>', unsafe_allow_html=True)
     
-    # Setup Gemini
     if st.session_state.genai_client is None:
         st.session_state.genai_client = setup_gemini()
     
-    # Load policies (silent, no "16 policies loaded" message)
     if not st.session_state.policies_loaded:
         chunks, sources, policy_names, pdf_files = load_policies()
         if chunks:
@@ -797,29 +801,22 @@ def main():
             st.session_state.policy_names = policy_names
             st.session_state.vectorizer, st.session_state.tfidf_matrix = setup_vectorizer(chunks)
             st.session_state.policies_loaded = True
-            # No success message shown to user (as requested)
         else:
             st.error("❌ No policies found. Please upload PDF files to the policies folder.")
             return
     
-    # Show sidebar
     show_sidebar()
     
-    # Show welcome screen if no chat history
     if not st.session_state.chat_history:
         show_welcome_screen()
     
-    # Display chat
     display_chat_history()
     
-    # Typing indicator
     if st.session_state.show_typing:
         show_typing_indicator()
     
-    # Input area - FIXED: Better layout with no extra space
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    # Use form for Enter key submission and auto-clear
     with st.form(key="chat_form", clear_on_submit=True):
         col1, col2 = st.columns([5, 1])
         
@@ -838,7 +835,6 @@ def main():
                 type="primary"
             )
     
-    # Clear chat button outside form
     col3, col4, col5 = st.columns([1, 1, 3])
     with col3:
         if st.button("🔄 Clear Chat", use_container_width=True, key="clear_btn"):
@@ -848,29 +844,23 @@ def main():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Handle form submission
     if submit and query and query.strip():
-        # Add user message
         st.session_state.chat_history.append({"role": "user", "content": query.strip()})
         st.session_state.show_typing = True
         st.rerun()
     
-    # Process AI response (after rerun)
     if st.session_state.show_typing and st.session_state.chat_history:
         last_msg = st.session_state.chat_history[-1]
         if last_msg['role'] == 'user':
-            # Get response from policies
-            client = st.session_state.genai_client
-            result = process_query(last_msg['content'], client)
+            client_config = st.session_state.genai_client
+            result = process_query(last_msg['content'], client_config)
             
-            # Format response with source
             if result['has_context'] and result['sources']:
                 sources_str = ",".join(result['sources'])
                 full_response = f"{result['answer']}||SOURCE||{sources_str}"
             else:
                 full_response = result['answer']
             
-            # Add bot response
             st.session_state.chat_history.append({
                 "role": "assistant", 
                 "content": full_response
@@ -878,10 +868,8 @@ def main():
             st.session_state.show_typing = False
             st.rerun()
     
-    # Contact HR card
     show_contact_hr_card()
     
-    # Footer
     st.markdown("""
         <div class="footer">
             <p>🕐 Available 24/7 | 🔒 Conversations are private and secure</p>
