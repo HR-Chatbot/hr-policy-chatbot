@@ -1,6 +1,6 @@
 """
-HR Policy Chatbot for Spectron - Suggestive Response Version
-Analyzes policies and provides specific suggestions, not generic welcomes
+HR Policy Chatbot for Spectron - Smart Suggestion Version
+Correctly suggests Privilege Leave for planned long leaves
 """
 
 import streamlit as st
@@ -231,25 +231,26 @@ st.markdown("""
         color: #1a365d;
     }
     
-    .suggestion-box {
+    .suggestion-highlight {
         background: #e6fffa;
-        border-left: 3px solid #38b2ac;
-        padding: 0.75rem;
-        border-radius: 6px;
-        margin-bottom: 0.75rem;
+        border: 2px solid #38b2ac;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.75rem 0;
     }
     
     .suggestion-title {
-        font-weight: 600;
+        font-weight: 700;
         color: #234e52;
-        margin-bottom: 0.3rem;
+        font-size: 1.1rem;
+        margin-bottom: 0.5rem;
     }
     
     .procedure-box {
         background: #f0fff4;
-        border-left: 3px solid #48bb78;
+        border-left: 4px solid #48bb78;
         padding: 0.75rem;
-        border-radius: 6px;
+        border-radius: 0 8px 8px 0;
         margin-top: 0.75rem;
     }
     
@@ -384,29 +385,52 @@ def search_policy(query, top_k=5):
     
     return chunks, scores
 
-# ============== OPENAI SETUP ==============
-def setup_openai():
-    try:
-        api_key = st.secrets.get("OPENAI_API_KEY", None)
-    except:
-        api_key = os.getenv("OPENAI_API_KEY")
+# ============== SMART POLICY DETECTION ==============
+def detect_leave_type(query):
+    """
+    Smart detection of which leave type to suggest based on query context.
+    Returns: 'privilege', 'sick', 'casual', or None
+    """
+    query_lower = query.lower()
     
-    if not api_key:
-        return None
+    # Keywords indicating PLANNED leave = Privilege Leave
+    planned_indicators = [
+        'plan', 'planning', 'planned', 'advance', 'future', 'next month', 
+        'next week', 'upcoming', 'vacation', 'holiday', 'trip', 'travel',
+        'may', 'june', 'july', 'august', 'september', 'october', 
+        'november', 'december', 'january', 'february', 'march', 'april',
+        '2 weeks', '3 weeks', '1 week', 'weeks', 'month', 'long leave'
+    ]
     
-    try:
-        return OpenAI(api_key=api_key)
-    except:
-        return None
+    # Keywords indicating MEDICAL/URGENT = Sick Leave
+    sick_indicators = [
+        'sick', 'ill', 'illness', 'medical', 'doctor', 'hospital', 
+        'fever', 'health', 'unwell', 'not feeling', 'emergency',
+        'medical certificate', 'mc', 'consultation'
+    ]
+    
+    # Keywords indicating SHORT/CASUAL = Casual Leave
+    casual_indicators = [
+        'casual', 'personal work', 'urgent work', 'half day', 
+        'few hours', 'personal', 'family function', 'short'
+    ]
+    
+    planned_score = sum(1 for word in planned_indicators if word in query_lower)
+    sick_score = sum(1 for word in sick_indicators if word in query_lower)
+    casual_score = sum(1 for word in casual_indicators if word in query_lower)
+    
+    # Return the highest scoring type
+    scores = {'privilege': planned_score, 'sick': sick_score, 'casual': casual_score}
+    max_type = max(scores, key=scores.get)
+    
+    if scores[max_type] > 0:
+        return max_type
+    return None
 
-def is_greeting(text):
-    """Check if text is a greeting"""
-    greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'namaste', 'hola', 'greetings']
-    text_lower = text.lower().strip()
-    return any(g in text_lower for g in greetings) or len(text_lower) < 3
-
-def find_matching_policy_file(query):
-    """Find the best matching policy file based on query"""
+def find_best_policy_file(query, detected_type=None):
+    """
+    Find the best matching policy file with smart prioritization.
+    """
     query_lower = query.lower()
     query_normalized = query_lower.replace(' ', '').replace('-', '').replace('_', '')
     query_words = set(w for w in query_lower.split() if len(w) > 2)
@@ -414,11 +438,28 @@ def find_matching_policy_file(query):
     best_match = None
     best_score = 0
     
+    # Priority order based on detected type
+    priority_policies = []
+    if detected_type == 'privilege':
+        priority_policies = ['privilege', 'leave']  # PL first
+    elif detected_type == 'sick':
+        priority_policies = ['sick', 'leave']
+    elif detected_type == 'casual':
+        priority_policies = ['casual', 'leave']
+    else:
+        priority_policies = ['leave', 'privilege', 'sick', 'casual']
+    
     for pdf_file in st.session_state.policy_files:
         filename = pdf_file.name.lower().replace('.pdf', '')
         filename_normalized = filename.replace(' ', '').replace('-', '').replace('_', '')
         
         score = 0
+        
+        # Priority boost for detected type
+        for priority in priority_policies:
+            if priority in filename:
+                score += 15  # High priority
+                break
         
         # Check for exact substring match
         if query_normalized in filename_normalized:
@@ -434,16 +475,11 @@ def find_matching_policy_file(query):
             if qw in filename_normalized:
                 score += 2
         
-        # Check reverse: filename words in query
-        for fw in filename_words:
-            if fw in query_normalized and len(fw) > 3:
-                score += 1
-        
         if score > best_score:
             best_score = score
             best_match = pdf_file.name
     
-    return best_match if best_score >= 2 else None
+    return best_match if best_score >= 3 else None
 
 def get_chunks_from_specific_policy(policy_filename, query, top_k=5):
     """Get chunks specifically from the identified policy file"""
@@ -470,15 +506,14 @@ def get_chunks_from_specific_policy(policy_filename, query, top_k=5):
     
     return specific_chunks[:top_k], [0.5] * min(top_k, len(specific_chunks))
 
-def is_in_policy_content(query, chunks, scores, specific_policy=None):
+def is_in_policy_content(query, chunks, scores):
     """Check if query matches policy content"""
-    if specific_policy and chunks:
-        return True
+    if not chunks:
+        return False
     
-    query_normalized = query.lower().replace(' ', '').replace('-', '').replace('_', '')
     query_words = set(w.lower() for w in query.split() if len(w) > 3)
     
-    if scores and scores[0] > 0.05:
+    if scores and scores[0] > 0.03:
         combined_text = " ".join(chunks[:2]).lower()
         matches = sum(1 for w in query_words if w in combined_text)
         if matches >= 1:
@@ -487,43 +522,79 @@ def is_in_policy_content(query, chunks, scores, specific_policy=None):
     all_policy_text = " ".join(st.session_state.policy_texts.values()).lower()
     keyword_matches = sum(1 for w in query_words if w in all_policy_text)
     
-    if keyword_matches >= 2:
+    if keyword_matches >= 1:
         return True
     
     return False
 
-def get_suggestive_response(query, context, is_followup, client):
+# ============== OPENAI SETUP ==============
+def setup_openai():
+    try:
+        api_key = st.secrets.get("OPENAI_API_KEY", None)
+    except:
+        api_key = os.getenv("OPENAI_API_KEY")
+    
+    if not api_key:
+        return None
+    
+    try:
+        return OpenAI(api_key=api_key)
+    except:
+        return None
+
+def is_greeting(text):
+    """Check if text is a greeting"""
+    greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'namaste', 'hola', 'greetings']
+    text_lower = text.lower().strip()
+    return any(g in text_lower for g in greetings) or len(text_lower) < 3
+
+def get_smart_suggestion(query, context, detected_type, policy_name, client):
     """
-    Generate a suggestive response based on policy content.
-    Instead of generic welcome, analyze and suggest specific actions.
+    Generate a smart suggestive response based on detected leave type.
     """
     try:
-        system_prompt = """You are a STRICT HR Policy Assistant for Spectron. 
-Your job is to ANALYZE the user's question, SEARCH the policy context, and PROVIDE A SPECIFIC SUGGESTION.
-NEVER give generic welcome messages. ALWAYS analyze the policy and suggest the specific action/leave type."""
+        # Map detected type to full name
+        type_names = {
+            'privilege': 'Privilege Leave',
+            'sick': 'Sick Leave',
+            'casual': 'Casual Leave'
+        }
+        suggested_type = type_names.get(detected_type, 'the appropriate leave')
+        
+        system_prompt = f"""You are a STRICT HR Policy Assistant for Spectron.
+The user is asking about leave. Based on analysis, you should suggest {suggested_type}.
+Use ONLY the provided policy context. NEVER use external knowledge."""
 
-        user_prompt = f"""Analyze this employee question and provide a SPECIFIC SUGGESTIVE response based ONLY on the policy context.
+        user_prompt = f"""ANALYZE THE QUERY AND SUGGEST THE CORRECT LEAVE TYPE
 
-EMPLOYEE QUESTION: {query}
+USER QUERY: {query}
+
+DETECTED LEAVE TYPE: {suggested_type}
+POLICY DOCUMENT: {policy_name}
 
 POLICY CONTEXT:
 {context[:2500]}
 
 INSTRUCTIONS:
-1. First, analyze what the employee is asking for
-2. Search the policy context for the specific answer
-3. Provide a DIRECT SUGGESTION (e.g., "You may apply for Privilege Leave" or "You should submit a medical certificate for Sick Leave")
-4. Include the PROCEDURE/STEPS from the policy
-5. Mention any ELIGIBILITY CRITERIA or CONDITIONS
-6. If multiple options exist, explain which is most suitable and why
-7. If information is NOT in the policy, say: NOT_IN_POLICY
-8. NEVER give generic welcomes like "I can help you with HR policies..."
-9. ALWAYS be specific and actionable
+1. Start with a CLEAR SUGGESTION: "Based on our {policy_name}, you may apply for {suggested_type}..."
+2. Explain WHY this is the right choice (planned leave = PL, medical = SL, etc.)
+3. Provide the EXACT PROCEDURE from the policy
+4. Mention ELIGIBILITY and any CONDITIONS
+5. If {suggested_type} is NOT appropriate based on the policy, say: WRONG_TYPE
+6. Be specific and actionable - no generic welcomes
 
-EXAMPLE GOOD RESPONSES:
-- "Based on our Privilege Leave Policy, you may apply for Privilege Leave for 2 weeks. Here is the procedure: [steps from policy]"
-- "For your medical leave request, you should apply for Sick Leave. Requirements: [from policy]"
-- "According to the Travel Policy, you can claim reimbursement by: [procedure]"
+EXAMPLE GOOD RESPONSE:
+"Based on our Privilege Leave Policy, you may apply for Privilege Leave for your planned 2-week absence in May.
+
+**Why Privilege Leave?**
+This is planned leave requested in advance, which falls under Privilege Leave.
+
+**Procedure:**
+1. [Steps from policy]
+2. [Steps from policy]
+
+**Important Notes:**
+- [Conditions from policy]"
 
 YOUR SUGGESTIVE RESPONSE:"""
 
@@ -539,7 +610,7 @@ YOUR SUGGESTIVE RESPONSE:"""
         
         answer = response.choices[0].message.content.strip()
         
-        if "NOT_IN_POLICY" in answer.upper() or len(answer) < 20:
+        if "WRONG_TYPE" in answer.upper() or len(answer) < 30:
             return None
         
         return answer
@@ -570,18 +641,18 @@ def show_logo():
         """, unsafe_allow_html=True)
 
 def show_welcome():
-    """Show welcome screen - NO generic greeting, just intro"""
+    """Show welcome screen"""
     st.markdown("""
         <div class="welcome-card">
             <div class="welcome-title">👋 Welcome to Your HR Assistant</div>
             <div class="welcome-text">
-                Ask me about Spectron's HR policies. I'll analyze our policy documents and suggest the best course of action for you.
+                Ask me about Spectron's HR policies. I'll analyze our documents and suggest the best course of action.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
 def show_policy_links():
-    """Show available policy documents with scrolling"""
+    """Show available policy documents"""
     if not st.session_state.policy_files:
         return
     
@@ -600,7 +671,7 @@ def show_policy_links():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def display_chat():
-    """Display chat messages - NO EMPTY STATE"""
+    """Display chat messages"""
     if not st.session_state.chat_history:
         return
     
@@ -628,7 +699,6 @@ def display_chat():
                     </div>
                 """, unsafe_allow_html=True)
             else:
-                # Format policy answer with suggestion styling
                 formatted = content.replace('\n', '<br>')
                 st.markdown(f"""
                     <div class="chat-message bot-message">
@@ -661,67 +731,74 @@ def show_contact():
 
 # ============== QUERY HANDLING ==============
 def process_response(query):
-    """Generate SUGGESTIVE response based on policy analysis"""
+    """Generate SMART SUGGESTIVE response with correct leave type detection"""
     
-    # Check if greeting - but still analyze if it contains a question
+    # Check if pure greeting
     if is_greeting(query) and len(query.split()) <= 2:
-        # Pure greeting - show welcome suggestion
         welcome_response = """Hello! 👋 
 
-I'm your HR Policy Assistant. I can analyze Spectron's policy documents and suggest the best course of action for your HR queries.
+I'm your HR Policy Assistant. I can analyze Spectron's policy documents and suggest the best course of action.
 
-**For example, you can ask:**
+**For example:**
 - "I want to take 2 weeks leave in May, which leave should I apply for?"
 - "How do I claim travel reimbursement?"
 - "What is the notice period policy?"
 
-Please share your specific HR question and I'll search our policies to give you a tailored suggestion."""
+Please share your specific HR question!"""
         
         st.session_state.chat_history.append({"role": "assistant", "content": welcome_response})
         st.session_state.show_typing = False
         return
     
-    # Try to find specific matching policy file
-    specific_policy = find_matching_policy_file(query)
+    # STEP 1: Detect leave type from query context
+    detected_type = detect_leave_type(query)
     
+    # STEP 2: Find best policy file based on detected type
+    specific_policy = find_best_policy_file(query, detected_type)
+    
+    # STEP 3: Get chunks from the best policy
     chunks = []
     scores = []
     
     if specific_policy:
         chunks, scores = get_chunks_from_specific_policy(specific_policy, query)
-        if not chunks:
-            specific_policy = None
     
-    if not specific_policy:
+    # Fallback to general search if no specific policy found
+    if not chunks:
         chunks, scores = search_policy(query)
+        specific_policy = None
     
-    # Check if actually in policy
-    if not is_in_policy_content(query, chunks, scores, specific_policy):
+    # STEP 4: Check if content is relevant
+    if not is_in_policy_content(query, chunks, scores):
         st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
         st.session_state.show_typing = False
         return
     
     context = "\n\n".join(chunks[:5])
+    policy_name = specific_policy.replace('.pdf', '') if specific_policy else 'Policy'
     
-    # Check if follow-up
-    user_messages = [m for m in st.session_state.chat_history if m['role'] == 'user']
-    is_followup = len(user_messages) > 1
-    
-    # Get suggestive response from OpenAI
+    # STEP 5: Get smart suggestion from OpenAI
     client = st.session_state.openai_client
     if client:
-        response = get_suggestive_response(query, context, is_followup, client)
+        response = get_smart_suggestion(query, context, detected_type, policy_name, client)
         if response:
             st.session_state.chat_history.append({"role": "assistant", "content": response})
         else:
-            st.session_state.chat_history.append({"role": "assistant", "content": "DECLINE"})
+            # Fallback if AI fails
+            fallback = f"""Based on our analysis of your query, you may apply for **{detected_type.upper() if detected_type else 'the appropriate'} Leave**.
+
+**Policy Reference:** {policy_name}
+
+**Key Information from Policy:**
+{context[:500]}...
+
+For complete details, please refer to the full policy document or contact HR at hrd@spectron.in"""
+            st.session_state.chat_history.append({"role": "assistant", "content": fallback})
     else:
-        # No API - show raw context with suggestion format
-        fallback = f"""Based on our policy documents, here is what I found:
+        # No API - simple fallback
+        fallback = f"""Based on our {policy_name}, you may apply for **{detected_type.upper() if detected_type else 'appropriate'} Leave**.
 
-{context[:600]}...
-
-**Suggestion:** Please review the above policy information. For specific guidance, contact HR at hrd@spectron.in"""
+Please contact HR at hrd@spectron.in for detailed procedure."""
         st.session_state.chat_history.append({"role": "assistant", "content": fallback})
     
     st.session_state.show_typing = False
