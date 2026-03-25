@@ -1,11 +1,6 @@
 """
-Spectron HR Assistant - Complete Corrected Version with Greeting Support
-Features:
-- Modern two-column UI with clickable policy navigator
-- Strict single-policy citation based on query detection
-- GPT-3.5 Turbo for cost efficiency
-- Handles greetings and general conversation
-- PDF policy loading from policies/ folder
+Spectron HR Assistant - ACTUALLY FIXED Version
+Proper greeting detection using exact word matching
 """
 
 import streamlit as st
@@ -37,7 +32,6 @@ st.markdown("""
         max-width: 100% !important; 
     }
     
-    /* Header Section */
     .header-bar {
         background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
         padding: 1rem 2rem;
@@ -57,37 +51,13 @@ st.markdown("""
         gap: 0.75rem; 
     }
     
-    .logo-icon { 
-        font-size: 2rem; 
-    }
+    .logo-icon { font-size: 2rem; }
+    .header-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
+    .header-subtitle { font-size: 0.85rem; opacity: 0.9; margin: 0; font-weight: 300; }
+    .header-contact { text-align: right; font-size: 0.8rem; opacity: 0.9; }
     
-    .header-title { 
-        font-size: 1.5rem; 
-        font-weight: 700; 
-        margin: 0; 
-    }
+    .main-layout { display: flex; height: calc(100vh - 70px); overflow: hidden; }
     
-    .header-subtitle { 
-        font-size: 0.85rem; 
-        opacity: 0.9; 
-        margin: 0; 
-        font-weight: 300; 
-    }
-    
-    .header-contact {
-        text-align: right;
-        font-size: 0.8rem;
-        opacity: 0.9;
-    }
-    
-    /* Main Layout */
-    .main-layout {
-        display: flex;
-        height: calc(100vh - 70px);
-        overflow: hidden;
-    }
-    
-    /* Left Sidebar - Policy Navigator */
     .policy-nav {
         width: 320px;
         background: #f8fafc;
@@ -113,21 +83,10 @@ st.markdown("""
         gap: 0.5rem;
     }
     
-    .nav-subtitle { 
-        font-size: 0.8rem; 
-        color: #64748b; 
-        line-height: 1.4; 
-    }
+    .nav-subtitle { font-size: 0.8rem; color: #64748b; line-height: 1.4; }
     
-    .policy-list {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1rem;
-    }
-    
-    .policy-category { 
-        margin-bottom: 1.25rem; 
-    }
+    .policy-list { flex: 1; overflow-y: auto; padding: 1rem; }
+    .policy-category { margin-bottom: 1.25rem; }
     
     .category-title {
         font-size: 0.7rem;
@@ -161,11 +120,8 @@ st.markdown("""
         transform: translateX(3px);
     }
     
-    .policy-icon { 
-        font-size: 1.1rem; 
-    }
+    .policy-icon { font-size: 1.1rem; }
     
-    /* Right Chat Area */
     .chat-area {
         flex: 1;
         display: flex;
@@ -174,7 +130,6 @@ st.markdown("""
         position: relative;
     }
     
-    /* Welcome Banner */
     .welcome-banner {
         background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
         border-bottom: 1px solid #bae6fd;
@@ -188,27 +143,10 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     
-    .welcome-icon { 
-        font-size: 2.5rem; 
-        margin-bottom: 0.75rem; 
-    }
+    .welcome-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .welcome-title { font-size: 1.25rem; font-weight: 600; color: #1e3a5f; margin-bottom: 0.5rem; }
+    .welcome-text { color: #475569; font-size: 0.95rem; max-width: 500px; margin: 0 auto; line-height: 1.6; }
     
-    .welcome-title {
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: #1e3a5f;
-        margin-bottom: 0.5rem;
-    }
-    
-    .welcome-text {
-        color: #475569;
-        font-size: 0.95rem;
-        max-width: 500px;
-        margin: 0 auto;
-        line-height: 1.6;
-    }
-    
-    /* Chat Container */
     .chat-container {
         flex: 1;
         overflow-y: auto;
@@ -230,10 +168,7 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     
-    .message-wrapper.user { 
-        margin-left: auto; 
-        flex-direction: row-reverse; 
-    }
+    .message-wrapper.user { margin-left: auto; flex-direction: row-reverse; }
     
     .avatar {
         width: 36px;
@@ -246,19 +181,10 @@ st.markdown("""
         flex-shrink: 0;
     }
     
-    .avatar.bot { 
-        background: #1e3a5f; 
-    }
+    .avatar.bot { background: #1e3a5f; }
+    .avatar.user { background: #c53030; }
     
-    .avatar.user { 
-        background: #c53030; 
-    }
-    
-    .message-content {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
+    .message-content { display: flex; flex-direction: column; gap: 0.25rem; }
     
     .message-bubble {
         padding: 0.875rem 1.25rem;
@@ -280,11 +206,7 @@ st.markdown("""
         border-bottom-right-radius: 4px;
     }
     
-    .message-meta { 
-        font-size: 0.7rem; 
-        color: #94a3b8; 
-        padding: 0 0.5rem; 
-    }
+    .message-meta { font-size: 0.7rem; color: #94a3b8; padding: 0 0.5rem; }
     
     .citation-badge {
         display: inline-flex;
@@ -300,19 +222,13 @@ st.markdown("""
         width: fit-content;
     }
     
-    /* Input Area */
     .input-container {
         border-top: 1px solid #e2e8f0;
         padding: 1rem 2rem;
         background: white;
     }
     
-    .input-wrapper {
-        max-width: 800px;
-        margin: 0 auto;
-        display: flex;
-        gap: 0.75rem;
-    }
+    .input-wrapper { max-width: 800px; margin: 0 auto; display: flex; gap: 0.75rem; }
     
     .stTextInput>div>div>input {
         border-radius: 10px;
@@ -327,7 +243,6 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.1);
     }
     
-    /* Empty State */
     .empty-state {
         text-align: center;
         padding: 3rem;
@@ -339,32 +254,13 @@ st.markdown("""
         align-items: center;
     }
     
-    .empty-icon { 
-        font-size: 3rem; 
-        margin-bottom: 1rem; 
-        opacity: 0.4; 
-    }
+    .empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
     
-    /* Scrollbar */
-    ::-webkit-scrollbar { 
-        width: 6px; 
-        height: 6px; 
-    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     
-    ::-webkit-scrollbar-track { 
-        background: transparent; 
-    }
-    
-    ::-webkit-scrollbar-thumb { 
-        background: #cbd5e1; 
-        border-radius: 3px; 
-    }
-    
-    ::-webkit-scrollbar-thumb:hover { 
-        background: #94a3b8; 
-    }
-    
-    /* Hide Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -374,7 +270,6 @@ st.markdown("""
 # ============== INITIALIZATION ==============
 @st.cache_resource
 def get_openai_client():
-    """Initialize OpenAI client"""
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except:
@@ -388,48 +283,88 @@ def get_openai_client():
 # ============== CONVERSATION HANDLER ==============
 class ConversationHandler:
     """
-    Handles greetings, small talk, and general conversation
-    separately from policy queries.
+    Handles greetings and small talk.
+    FIXED: Uses EXACT word matching, not substring matching!
     """
     
-    GREETINGS = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings', 'howdy']
-    FAREWELLS = ['bye', 'goodbye', 'see you', 'thank you', 'thanks', 'ok thanks', 'got it thanks']
-    HELP = ['help', 'what can you do', 'what do you do', 'how do you work', 'capabilities']
-    ABOUT = ['who are you', 'what are you', 'your name', 'about you']
+    # EXACT match only - these must be the complete word
+    GREETINGS = {'hello', 'hi', 'hey', 'howdy', 'hiya'}
+    GREETING_PHRASES = ['good morning', 'good afternoon', 'good evening', 'good day']
+    FAREWELLS = {'bye', 'goodbye', 'see you', 'take care'}
+    THANKS_WORDS = {'thanks', 'ty'}
+    THANKS_PHRASES = ['thank you', 'thankyou', 'appreciate it']
+    HELP = ['help', 'what can you do', 'what do you do', 'how do you work', 'capabilities', 'features']
+    ABOUT = ['who are you', 'what are you', 'your name', 'about you', 'introduce yourself']
     
     @classmethod
     def is_greeting(cls, text):
-        """Check if text is a greeting"""
-        text_lower = text.lower().strip()
-        return any(g in text_lower for g in cls.GREETINGS) or text_lower in ['hi', 'hey', 'hello']
+        """
+        Check if text is ONLY a greeting.
+        Uses EXACT word matching - 'hi' must be the complete word, not inside 'which'.
+        """
+        text_clean = text.lower().strip().rstrip('!.?')
+        
+        # Split into words and remove punctuation
+        words = re.findall(r'\b[a-z]+\b', text_clean)
+        
+        # If more than 4 words, it's likely a question, not just a greeting
+        if len(words) > 4:
+            return False
+        
+        # Check for exact greeting word matches only
+        for word in words:
+            if word in cls.GREETINGS:
+                return True
+        
+        # Check for greeting phrases
+        for phrase in cls.GREETING_PHRASES:
+            if phrase in text_clean:
+                return True
+        
+        return False
     
     @classmethod
     def is_farewell(cls, text):
         """Check if text is a farewell/thanks"""
-        text_lower = text.lower().strip()
-        return any(f in text_lower for f in cls.FAREWELLS)
+        text_clean = text.lower().strip()
+        words = re.findall(r'\b[a-z]+\b', text_clean)
+        
+        # Short thanks (1-3 words)
+        if len(words) <= 3:
+            for word in words:
+                if word in cls.THANKS_WORDS:
+                    return True
+            for phrase in cls.THANKS_PHRASES:
+                if phrase in text_clean:
+                    return True
+        
+        # Farewells
+        for word in words:
+            if word in cls.FAREWELLS:
+                return True
+        
+        return False
     
     @classmethod
     def is_help_request(cls, text):
         """Check if user is asking for help/capabilities"""
-        text_lower = text.lower().strip()
-        return any(h in text_lower for h in cls.HELP)
+        text_clean = text.lower().strip()
+        return any(h in text_clean for h in cls.HELP)
     
     @classmethod
     def is_about_request(cls, text):
         """Check if user is asking about the bot"""
-        text_lower = text.lower().strip()
-        return any(a in text_lower for a in cls.ABOUT)
+        text_clean = text.lower().strip()
+        return any(a in text_clean for a in cls.ABOUT)
     
     @classmethod
     def get_greeting_response(cls):
-        """Return friendly greeting response"""
         return """👋 Hello! Welcome to Spectron HR Support.
 
 I'm your AI HR Assistant, available 24/7 to help you with:
 
 🌴 **Leave & Attendance** - Privilege, Sick, Casual leave applications and balances
-💰 **Compensation & Benefits** - Salary, bonuses, reimbursements, insurance
+💰 **Compensation & Benefits** - Salary, bonuses, reimbursements, insurance  
 🏢 **Workplace Policies** - Code of conduct, safety, dress code
 📋 **Employment Terms** - Notice periods, probation, termination policies
 🔒 **Compliance** - Data protection, legal requirements
@@ -438,7 +373,6 @@ I'm your AI HR Assistant, available 24/7 to help you with:
     
     @classmethod
     def get_farewell_response(cls):
-        """Return farewell response"""
         return """You're welcome! 😊
 
 If you have any more questions about HR policies, leave applications, or workplace guidelines, feel free to ask anytime. I'm here 24/7!
@@ -447,7 +381,6 @@ Have a great day! 👋"""
     
     @classmethod
     def get_help_response(cls, available_policies):
-        """Return help response with available policies"""
         policy_list = "\n".join([f"• {p}" for p in available_policies[:10]])
         
         return f"""I'm here to answer questions about Spectron's HR policies! Here's what I can help with:
@@ -467,7 +400,6 @@ Just type your question naturally, and I'll find the relevant policy information
     
     @classmethod
     def get_about_response(cls):
-        """Return bot introduction"""
         return """I'm **Spectron's AI HR Assistant** 🤖
 
 I was created to help employees like you get quick answers to HR-related questions anytime, anywhere. I can:
@@ -483,13 +415,8 @@ How can I assist you today?"""
 
 # ============== CITATION CONTROLLER ==============
 class CitationController:
-    """
-    Strictly controls policy citations to ensure accuracy.
-    Detects query type and enforces correct single-policy citation.
-    """
-    
     POLICY_KEYWORDS = {
-        'Privilege Leave': ['privilege', 'planned', 'vacation', 'holiday', '2 weeks', 'two weeks', 'advance booking', 'pre-planned', 'annual leave'],
+        'Privilege Leave': ['privilege', 'planned', 'vacation', 'holiday', '2 weeks', 'two weeks', 'advance booking', 'pre-planned', 'annual leave', 'long leave'],
         'Sick Leave': ['sick', 'medical', 'illness', 'doctor', 'health', 'unwell', 'fever', 'hospital', 'medical certificate'],
         'Casual Leave': ['casual', 'urgent', 'personal work', 'half day', 'sudden', 'emergency', 'personal reason'],
         'Data Protection': ['data', 'privacy', 'gdpr', 'confidential', 'personal information', 'data security'],
@@ -505,7 +432,6 @@ class CitationController:
     
     @classmethod
     def detect_policy_type(cls, query):
-        """Detect which policy type the query is about"""
         query_lower = query.lower()
         scores = {}
         
@@ -520,18 +446,14 @@ class CitationController:
     
     @classmethod
     def get_citation_name(cls, policy_name):
-        """Format policy name for citation"""
         if not policy_name:
             return "Company Policy"
-        
         if "policy" in policy_name.lower():
             return policy_name
-        
         return f"{policy_name} Policy"
     
     @classmethod
     def enforce_single_citation(cls, response, correct_policy):
-        """Remove multiple policy references"""
         correct_citation = cls.get_citation_name(correct_policy)
         
         patterns = [
@@ -539,7 +461,6 @@ class CitationController:
             r'According to our [^,]+(,\s*[^,]+)*\s+policies?',
             r'As per our [^,]+(,\s*[^,]+)*\s+policies?',
             r'Our [^,]+(,\s*[^,]+)*\s+policies?\s+(state|indicate|specify|mention|allow)',
-            r'(?:Sick Leave|Privilege Leave|Casual Leave|Annual Leave)[,\s]+(?:Sick Leave|Privilege Leave|Casual Leave|Annual Leave)[,\s]+(?:and\s+)?(?:Sick Leave|Privilege Leave|Casual Leave|Annual Leave)?\s+policies?'
         ]
         
         cleaned = response
@@ -553,8 +474,6 @@ class CitationController:
 
 # ============== POLICY DATABASE ==============
 class PolicyDatabase:
-    """Handles loading and indexing of all HR policies from PDFs"""
-    
     def __init__(self, policy_folder="policies"):
         self.policy_folder = Path(policy_folder)
         self.policies = {}
@@ -564,16 +483,11 @@ class PolicyDatabase:
         self.load_all_policies()
     
     def load_all_policies(self):
-        """Load all PDF policies from the folder"""
         if not self.policy_folder.exists():
-            st.error(f"❌ Policy folder '{self.policy_folder}' not found! Please create it and add PDF files.")
+            st.error(f"❌ Policy folder '{self.policy_folder}' not found!")
             return
         
         pdf_files = list(self.policy_folder.glob("*.pdf"))
-        
-        if not pdf_files:
-            st.warning("⚠️ No PDF policies found in the policies folder.")
-            return
         
         for pdf_path in pdf_files:
             try:
@@ -587,7 +501,6 @@ class PolicyDatabase:
         self.build_index()
     
     def extract_pdf_text(self, pdf_path):
-        """Extract text from PDF"""
         reader = PdfReader(str(pdf_path))
         text = ""
         for page in reader.pages:
@@ -596,8 +509,7 @@ class PolicyDatabase:
                 text += page_text + "\n"
         return text
     
-    def chunk_policy(self, policy_name, content, chunk_size=1500):
-        """Split policy into searchable chunks"""
+    def chunk_policy(self, policy_name, content):
         sections = re.split(r'\n(?=(?:[A-Z][A-Z\s]{2,}|(?:\d+\.|[A-Z]\.)\s+[A-Z]).{0,50}\n)', content)
         
         for i, section in enumerate(sections):
@@ -610,7 +522,6 @@ class PolicyDatabase:
                 })
     
     def build_index(self):
-        """Build TF-IDF search index"""
         if not self.sections:
             return
         
@@ -624,7 +535,6 @@ class PolicyDatabase:
         self.vectors = self.vectorizer.fit_transform(texts)
     
     def search(self, query, top_k=3):
-        """Find relevant policy sections"""
         if not self.sections or self.vectorizer is None:
             return []
         
@@ -642,7 +552,6 @@ class PolicyDatabase:
         return results
     
     def get_categorized_policies(self):
-        """Group policies by category for sidebar"""
         categories = {
             "🌴 Leave & Attendance": [],
             "💰 Compensation & Benefits": [],
@@ -667,13 +576,10 @@ class PolicyDatabase:
         return {k: sorted(v) for k, v in categories.items() if v}
     
     def get_all_policy_names(self):
-        """Return list of all policy names"""
         return list(self.policies.keys())
 
 # ============== HR ASSISTANT ==============
 class HRAssistant:
-    """Universal HR Q&A with conversation handling"""
-    
     def __init__(self, policy_db, client):
         self.db = policy_db
         self.client = client
@@ -682,7 +588,7 @@ class HRAssistant:
     def generate_response(self, query):
         """Main entry point - handles conversation or policy queries"""
         
-        # Check for greetings first
+        # Check for greetings FIRST (but only if it's a short greeting)
         if self.conversation.is_greeting(query):
             return self.conversation.get_greeting_response()
         
@@ -702,7 +608,6 @@ class HRAssistant:
         return self._handle_policy_query(query)
     
     def _handle_policy_query(self, query):
-        """Handle actual policy questions"""
         if not self.client:
             return "⚠️ System not configured. Please contact IT support."
         
@@ -727,7 +632,6 @@ class HRAssistant:
         return self._create_policy_response(query, context, citation_name)
     
     def _get_relevant_context(self, query, detected_policy):
-        """Get context from relevant policy"""
         results = self.db.search(query, top_k=5)
         
         if not results:
@@ -741,8 +645,6 @@ class HRAssistant:
         return results[0]['content'][:2500], results[0]['policy_name']
     
     def _create_policy_response(self, query, context, citation_name):
-        """Create policy response with strict citation"""
-        
         system_prompt = f"""You are Spectron's HR Assistant. Answer based ONLY on the provided policy context.
 
 STRICT RULES:
@@ -781,7 +683,6 @@ Context:
             return f"⚠️ I apologize, I'm experiencing technical difficulties. Please contact HR at hr@spectron.com."
     
     def _handle_no_context(self):
-        """Fallback when no relevant policy found"""
         return """I don't have specific information on that in our current policy documents.
 
 **Please contact HR directly:**
@@ -808,7 +709,6 @@ def render_header():
     """, unsafe_allow_html=True)
 
 def render_sidebar(policy_db):
-    """Render clickable policy navigator"""
     st.markdown('<div class="policy-nav">', unsafe_allow_html=True)
     
     st.markdown("""
@@ -852,14 +752,12 @@ def render_sidebar(policy_db):
     st.markdown('</div></div>', unsafe_allow_html=True)
 
 def render_chat_area(assistant):
-    """Render chat interface"""
     st.markdown('<div class="chat-area">', unsafe_allow_html=True)
     
     if 'messages' not in st.session_state:
         st.session_state.messages = []
         st.session_state.policy_clicked = None
     
-    # Show welcome banner if no messages
     if len(st.session_state.messages) == 0:
         st.markdown("""
         <div class="welcome-banner">
