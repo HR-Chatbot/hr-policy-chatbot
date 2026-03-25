@@ -1,9 +1,10 @@
 """
-Spectron HR Assistant - Complete Corrected Version
+Spectron HR Assistant - Complete Corrected Version with Greeting Support
 Features:
 - Modern two-column UI with clickable policy navigator
 - Strict single-policy citation based on query detection
 - GPT-3.5 Turbo for cost efficiency
+- Handles greetings and general conversation
 - PDF policy loading from policies/ folder
 """
 
@@ -384,6 +385,102 @@ def get_openai_client():
         return None
     return OpenAI(api_key=api_key)
 
+# ============== CONVERSATION HANDLER ==============
+class ConversationHandler:
+    """
+    Handles greetings, small talk, and general conversation
+    separately from policy queries.
+    """
+    
+    GREETINGS = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings', 'howdy']
+    FAREWELLS = ['bye', 'goodbye', 'see you', 'thank you', 'thanks', 'ok thanks', 'got it thanks']
+    HELP = ['help', 'what can you do', 'what do you do', 'how do you work', 'capabilities']
+    ABOUT = ['who are you', 'what are you', 'your name', 'about you']
+    
+    @classmethod
+    def is_greeting(cls, text):
+        """Check if text is a greeting"""
+        text_lower = text.lower().strip()
+        return any(g in text_lower for g in cls.GREETINGS) or text_lower in ['hi', 'hey', 'hello']
+    
+    @classmethod
+    def is_farewell(cls, text):
+        """Check if text is a farewell/thanks"""
+        text_lower = text.lower().strip()
+        return any(f in text_lower for f in cls.FAREWELLS)
+    
+    @classmethod
+    def is_help_request(cls, text):
+        """Check if user is asking for help/capabilities"""
+        text_lower = text.lower().strip()
+        return any(h in text_lower for h in cls.HELP)
+    
+    @classmethod
+    def is_about_request(cls, text):
+        """Check if user is asking about the bot"""
+        text_lower = text.lower().strip()
+        return any(a in text_lower for a in cls.ABOUT)
+    
+    @classmethod
+    def get_greeting_response(cls):
+        """Return friendly greeting response"""
+        return """👋 Hello! Welcome to Spectron HR Support.
+
+I'm your AI HR Assistant, available 24/7 to help you with:
+
+🌴 **Leave & Attendance** - Privilege, Sick, Casual leave applications and balances
+💰 **Compensation & Benefits** - Salary, bonuses, reimbursements, insurance
+🏢 **Workplace Policies** - Code of conduct, safety, dress code
+📋 **Employment Terms** - Notice periods, probation, termination policies
+🔒 **Compliance** - Data protection, legal requirements
+
+**How can I help you today?** Just ask me anything about our HR policies!"""
+    
+    @classmethod
+    def get_farewell_response(cls):
+        """Return farewell response"""
+        return """You're welcome! 😊
+
+If you have any more questions about HR policies, leave applications, or workplace guidelines, feel free to ask anytime. I'm here 24/7!
+
+Have a great day! 👋"""
+    
+    @classmethod
+    def get_help_response(cls, available_policies):
+        """Return help response with available policies"""
+        policy_list = "\n".join([f"• {p}" for p in available_policies[:10]])
+        
+        return f"""I'm here to answer questions about Spectron's HR policies! Here's what I can help with:
+
+**📋 Available Policy Categories:**
+{policy_list}
+{'... and more!' if len(available_policies) > 10 else ''}
+
+**💡 Example questions you can ask:**
+• "How many privilege leaves do I get?"
+• "What's the procedure for sick leave?"
+• "Tell me about the bonus policy"
+• "What is the notice period?"
+• "How do I claim travel reimbursement?"
+
+Just type your question naturally, and I'll find the relevant policy information for you!"""
+    
+    @classmethod
+    def get_about_response(cls):
+        """Return bot introduction"""
+        return """I'm **Spectron's AI HR Assistant** 🤖
+
+I was created to help employees like you get quick answers to HR-related questions anytime, anywhere. I can:
+
+✅ Search through all company policy documents instantly
+✅ Provide accurate information with proper policy citations
+✅ Guide you through procedures and processes
+✅ Answer questions about leaves, benefits, compensation, and more
+
+**Note:** While I strive to be accurate, please verify critical information with the HR team for complex situations.
+
+How can I assist you today?"""
+
 # ============== CITATION CONTROLLER ==============
 class CitationController:
     """
@@ -391,36 +488,29 @@ class CitationController:
     Detects query type and enforces correct single-policy citation.
     """
     
-    # Keywords that indicate specific policy types
     POLICY_KEYWORDS = {
-        'Privilege Leave': ['privilege', 'planned', 'vacation', 'holiday', '2 weeks', 'two weeks', 'advance booking', 'pre-planned'],
-        'Sick Leave': ['sick', 'medical', 'illness', 'doctor', 'health', 'unwell', 'fever', 'hospital'],
-        'Casual Leave': ['casual', 'urgent', 'personal work', 'half day', 'sudden', 'emergency'],
-        'Annual Leave': ['annual', 'yearly', 'earned leave', 'accumulated'],
-        'Data Protection': ['data', 'privacy', 'gdpr', 'confidential', 'personal information'],
-        'Travel Reimbursement': ['travel', 'reimbursement', 'expense', 'claim', 'trip', 'conveyance'],
-        'Gratuity': ['gratuity', 'retirement benefit', 'service bonus'],
-        'Payment of Bonus': ['bonus', 'performance pay', 'incentive', 'diwali bonus'],
-        'ESIC': ['esic', 'insurance', 'medical claim', 'employee state insurance'],
-        'Workplace Safety': ['safety', 'accident', 'hazard', 'ppe', 'security'],
-        'At Will Employment': ['termination', 'resign', 'notice period', 'exit', 'separation', 'at will']
+        'Privilege Leave': ['privilege', 'planned', 'vacation', 'holiday', '2 weeks', 'two weeks', 'advance booking', 'pre-planned', 'annual leave'],
+        'Sick Leave': ['sick', 'medical', 'illness', 'doctor', 'health', 'unwell', 'fever', 'hospital', 'medical certificate'],
+        'Casual Leave': ['casual', 'urgent', 'personal work', 'half day', 'sudden', 'emergency', 'personal reason'],
+        'Data Protection': ['data', 'privacy', 'gdpr', 'confidential', 'personal information', 'data security'],
+        'Travel Reimbursement': ['travel', 'reimbursement', 'expense', 'claim', 'trip', 'conveyance', 'transport'],
+        'Gratuity': ['gratuity', 'retirement benefit', 'service bonus', 'retirement'],
+        'Payment of Bonus': ['bonus', 'performance pay', 'incentive', 'diwali bonus', 'festival bonus'],
+        'ESIC': ['esic', 'insurance', 'medical claim', 'employee state insurance', 'health insurance'],
+        'Workplace Safety': ['safety', 'accident', 'hazard', 'ppe', 'security', 'fire safety'],
+        'At Will Employment': ['termination', 'resign', 'notice period', 'exit', 'separation', 'at will', 'resignation'],
+        'Environment Policy': ['environment', 'green', 'sustainability', 'eco', 'recycling'],
+        'Code of Conduct': ['conduct', 'behavior', 'ethics', 'misconduct', 'harassment', 'discipline']
     }
     
     @classmethod
     def detect_policy_type(cls, query):
-        """
-        Detect which policy type the query is about based on keywords.
-        Returns the most relevant policy name.
-        """
+        """Detect which policy type the query is about"""
         query_lower = query.lower()
         scores = {}
         
         for policy_type, keywords in cls.POLICY_KEYWORDS.items():
-            score = sum(2 if kw in query_lower else 0 for kw in keywords)
-            # Bonus for exact phrase matches
-            for kw in keywords:
-                if kw in query_lower:
-                    score += 1
+            score = sum(3 if kw in query_lower else 0 for kw in keywords)
             if score > 0:
                 scores[policy_type] = score
         
@@ -434,7 +524,6 @@ class CitationController:
         if not policy_name:
             return "Company Policy"
         
-        # If already ends with Policy, use as-is
         if "policy" in policy_name.lower():
             return policy_name
         
@@ -442,12 +531,9 @@ class CitationController:
     
     @classmethod
     def enforce_single_citation(cls, response, correct_policy):
-        """
-        Remove any multiple policy references and enforce single correct citation.
-        """
+        """Remove multiple policy references"""
         correct_citation = cls.get_citation_name(correct_policy)
         
-        # Patterns that indicate multiple citations
         patterns = [
             r'Based on our [^,]+(,\s*[^,]+)*\s+policies?',
             r'According to our [^,]+(,\s*[^,]+)*\s+policies?',
@@ -460,7 +546,6 @@ class CitationController:
         for pattern in patterns:
             cleaned = re.sub(pattern, f'Based on our {correct_citation}', cleaned, flags=re.IGNORECASE)
         
-        # Clean up remnants
         cleaned = re.sub(r'\s+and related policies?', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r',\s*and\s+[^,]+Policy', '', cleaned, flags=re.IGNORECASE)
         
@@ -472,8 +557,8 @@ class PolicyDatabase:
     
     def __init__(self, policy_folder="policies"):
         self.policy_folder = Path(policy_folder)
-        self.policies = {}  # name -> full content
-        self.sections = []  # searchable chunks
+        self.policies = {}
+        self.sections = []
         self.vectorizer = None
         self.vectors = None
         self.load_all_policies()
@@ -493,7 +578,6 @@ class PolicyDatabase:
         for pdf_path in pdf_files:
             try:
                 content = self.extract_pdf_text(pdf_path)
-                # Clean policy name from filename
                 policy_name = pdf_path.stem.replace("_", " ").replace("-", " ").strip()
                 self.policies[policy_name] = content
                 self.chunk_policy(policy_name, content)
@@ -514,15 +598,14 @@ class PolicyDatabase:
     
     def chunk_policy(self, policy_name, content, chunk_size=1500):
         """Split policy into searchable chunks"""
-        # Split by headers (all caps or numbered sections)
         sections = re.split(r'\n(?=(?:[A-Z][A-Z\s]{2,}|(?:\d+\.|[A-Z]\.)\s+[A-Z]).{0,50}\n)', content)
         
         for i, section in enumerate(sections):
             section = section.strip()
-            if len(section) > 100:  # Meaningful content only
+            if len(section) > 100:
                 self.sections.append({
                     'policy_name': policy_name,
-                    'content': section[:2000],  # Limit chunk size
+                    'content': section[:2000],
                     'section_num': i
                 })
     
@@ -551,7 +634,7 @@ class PolicyDatabase:
         
         results = []
         for idx in top_indices:
-            if similarities[idx] > 0.05:  # Lower threshold for flexibility
+            if similarities[idx] > 0.05:
                 results.append({
                     **self.sections[idx],
                     'score': similarities[idx]
@@ -582,49 +665,57 @@ class PolicyDatabase:
                 categories["🔒 Compliance & Legal"].append(policy)
         
         return {k: sorted(v) for k, v in categories.items() if v}
+    
+    def get_all_policy_names(self):
+        """Return list of all policy names"""
+        return list(self.policies.keys())
 
 # ============== HR ASSISTANT ==============
 class HRAssistant:
-    """Universal HR Q&A with strict citation control"""
+    """Universal HR Q&A with conversation handling"""
     
     def __init__(self, policy_db, client):
         self.db = policy_db
         self.client = client
+        self.conversation = ConversationHandler()
     
-    def get_relevant_context(self, query, detected_policy):
-        """
-        Get context from the most relevant policy.
-        Prioritizes the detected policy type.
-        """
-        results = self.db.search(query, top_k=5)
+    def generate_response(self, query):
+        """Main entry point - handles conversation or policy queries"""
         
-        if not results:
-            return None, None
+        # Check for greetings first
+        if self.conversation.is_greeting(query):
+            return self.conversation.get_greeting_response()
         
-        # If we detected a specific policy type, prioritize it
-        if detected_policy:
-            for result in results:
-                if detected_policy.lower() in result['policy_name'].lower():
-                    return result['content'][:2500], result['policy_name']
+        # Check for farewells/thanks
+        if self.conversation.is_farewell(query):
+            return self.conversation.get_farewell_response()
         
-        # Otherwise use top result
-        return results[0]['content'][:2500], results[0]['policy_name']
+        # Check for help request
+        if self.conversation.is_help_request(query):
+            return self.conversation.get_help_response(self.db.get_all_policy_names())
+        
+        # Check for about request
+        if self.conversation.is_about_request(query):
+            return self.conversation.get_about_response()
+        
+        # Otherwise, treat as policy query
+        return self._handle_policy_query(query)
     
-    def generate_answer(self, query):
-        """Generate answer with correct single-policy citation"""
+    def _handle_policy_query(self, query):
+        """Handle actual policy questions"""
         if not self.client:
             return "⚠️ System not configured. Please contact IT support."
         
-        # Step 1: Detect what type of policy this is about
+        # Detect policy type
         detected_policy = CitationController.detect_policy_type(query)
         
-        # Step 2: Get relevant context
-        context, source_policy = self.get_relevant_context(query, detected_policy)
+        # Get relevant context
+        context, source_policy = self._get_relevant_context(query, detected_policy)
         
         if not context:
             return self._handle_no_context()
         
-        # Step 3: Determine final citation (detected type takes priority)
+        # Determine citation
         if detected_policy:
             citation_policy = detected_policy
         else:
@@ -632,21 +723,34 @@ class HRAssistant:
         
         citation_name = CitationController.get_citation_name(citation_policy)
         
-        # Step 4: Generate response with strict instructions
-        return self._create_strict_response(query, context, citation_name)
+        # Generate response
+        return self._create_policy_response(query, context, citation_name)
     
-    def _create_strict_response(self, query, context, citation_name):
-        """Create response enforcing single correct citation"""
+    def _get_relevant_context(self, query, detected_policy):
+        """Get context from relevant policy"""
+        results = self.db.search(query, top_k=5)
+        
+        if not results:
+            return None, None
+        
+        if detected_policy:
+            for result in results:
+                if detected_policy.lower() in result['policy_name'].lower():
+                    return result['content'][:2500], result['policy_name']
+        
+        return results[0]['content'][:2500], results[0]['policy_name']
+    
+    def _create_policy_response(self, query, context, citation_name):
+        """Create policy response with strict citation"""
         
         system_prompt = f"""You are Spectron's HR Assistant. Answer based ONLY on the provided policy context.
 
 STRICT RULES:
-1. You MUST start with exactly: "Based on our {citation_name},"
-2. Answer the question directly and concisely
-3. Include procedure steps only if relevant
+1. Start with exactly: "Based on our {citation_name},"
+2. Answer directly and concisely
+3. Include procedure steps if relevant
 4. Add 1-2 important notes if applicable
 5. NEVER mention other policy names
-6. If context doesn't fully answer, say so honestly
 
 Context:
 {context}
@@ -664,15 +768,11 @@ Context:
             )
             
             answer = response.choices[0].message.content
-            
-            # Post-process to enforce citation
             answer = CitationController.enforce_single_citation(answer, citation_name)
             
-            # Ensure proper citation start
             if not answer.startswith(f"Based on our {citation_name}"):
                 answer = f"Based on our {citation_name}, {answer}"
             
-            # Add citation badge indicator
             answer = f'<div class="citation-badge">📋 {citation_name}</div>{answer}'
             
             return answer
@@ -726,7 +826,6 @@ def render_sidebar(policy_db):
         st.markdown(f'<div class="category-title">{category}</div>', unsafe_allow_html=True)
         
         for policy in policies:
-            # Determine icon based on policy name
             icon = "📄"
             p_lower = policy.lower()
             if "privilege" in p_lower:
@@ -746,7 +845,6 @@ def render_sidebar(policy_db):
             elif "travel" in p_lower:
                 icon = "✈️"
             
-            # Create clickable button for each policy
             if st.button(f"{icon} {policy}", key=f"policy_{policy}", use_container_width=True):
                 st.session_state.policy_clicked = policy
                 st.rerun()
@@ -757,7 +855,6 @@ def render_chat_area(assistant):
     """Render chat interface"""
     st.markdown('<div class="chat-area">', unsafe_allow_html=True)
     
-    # Initialize messages
     if 'messages' not in st.session_state:
         st.session_state.messages = []
         st.session_state.policy_clicked = None
@@ -775,10 +872,8 @@ def render_chat_area(assistant):
         </div>
         """, unsafe_allow_html=True)
     
-    # Chat container
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
-    # Display messages
     if len(st.session_state.messages) == 0:
         st.markdown("""
         <div class="empty-state">
@@ -811,10 +906,8 @@ def render_chat_area(assistant):
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Input area
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    # Handle policy click
     default_value = ""
     if st.session_state.policy_clicked:
         default_value = f"Tell me about {st.session_state.policy_clicked}"
@@ -834,16 +927,14 @@ def render_chat_area(assistant):
     
     st.markdown('</div></div>', unsafe_allow_html=True)
     
-    # Process message
     if send_clicked and user_input:
-        # Clear default if it was from policy click
         if user_input.startswith("Tell me about"):
             st.session_state.policy_clicked = None
         
         st.session_state.messages.append({"role": "user", "content": user_input})
         
         with st.spinner("Thinking..."):
-            response = assistant.generate_answer(user_input)
+            response = assistant.generate_response(user_input)
             st.session_state.messages.append({"role": "assistant", "content": response})
         
         st.rerun()
@@ -852,12 +943,10 @@ def render_chat_area(assistant):
 def main():
     render_header()
     
-    # Initialize systems
     client = get_openai_client()
     policy_db = PolicyDatabase()
     assistant = HRAssistant(policy_db, client)
     
-    # Create layout
     col1, col2 = st.columns([1, 3])
     
     with col1:
