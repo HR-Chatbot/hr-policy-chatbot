@@ -1,5 +1,5 @@
 """
-Spectron HR Assistant - ACTUALLY FIXED Version
+HR Assistant - ACTUALLY FIXED Version
 Proper greeting detection using exact word matching
 """
 
