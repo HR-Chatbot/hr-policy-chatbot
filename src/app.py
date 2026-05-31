@@ -14,7 +14,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # ============== PAGE CONFIG ==============
 st.set_page_config(
-    page_title="Spectron HR Assistant",
+    page_title=" HR Assistant",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -359,7 +359,7 @@ class ConversationHandler:
     
     @classmethod
     def get_greeting_response(cls):
-        return """👋 Hello! Welcome to Spectron HR Support.
+        return """👋 Hello! Welcome to HR Support.
 
 I'm your AI HR Assistant, available 24/7 to help you with:
 
@@ -383,7 +383,7 @@ Have a great day! 👋"""
     def get_help_response(cls, available_policies):
         policy_list = "\n".join([f"• {p}" for p in available_policies[:10]])
         
-        return f"""I'm here to answer questions about Spectron's HR policies! Here's what I can help with:
+        return f"""I'm here to answer questions about HR policies! Here's what I can help with:
 
 **📋 Available Policy Categories:**
 {policy_list}
@@ -400,7 +400,7 @@ Just type your question naturally, and I'll find the relevant policy information
     
     @classmethod
     def get_about_response(cls):
-        return """I'm **Spectron's AI HR Assistant** 🤖
+        return """I'm **HR AI Assistant** 🤖
 
 I was created to help employees like you get quick answers to HR-related questions anytime, anywhere. I can:
 
@@ -645,7 +645,7 @@ class HRAssistant:
         return results[0]['content'][:2500], results[0]['policy_name']
     
     def _create_policy_response(self, query, context, citation_name):
-        system_prompt = f"""You are Spectron's HR Assistant. Answer based ONLY on the provided policy context.
+        system_prompt = f"""You are HR Assistant. Answer based ONLY on the provided policy context.
 
 STRICT RULES:
 1. Start with exactly: "Based on our {citation_name},"
@@ -680,13 +680,13 @@ Context:
             return answer
             
         except Exception as e:
-            return f"⚠️ I apologize, I'm experiencing technical difficulties. Please contact HR at hr@spectron.com."
+            return f"⚠️ I apologize, I'm experiencing technical difficulties. Please contact HR at hr@hrpolicyhub.in."
     
     def _handle_no_context(self):
         return """I don't have specific information on that in our current policy documents.
 
 **Please contact HR directly:**
-- 📧 hr@spectron.com  
+- 📧 hr@hrpolicyhub.com  
 - 📞 Ext. 2001  
 - 🏢 2nd Floor, HR Department"""
 
@@ -697,13 +697,13 @@ def render_header():
         <div class="header-left">
             <div class="logo-icon">💼</div>
             <div>
-                <div class="header-title">Spectron HR Assistant</div>
+                <div class="header-title"> HR Assistant</div>
                 <div class="header-subtitle">24/7 Policy Support</div>
             </div>
         </div>
         <div class="header-contact">
             <div>Need help? Contact HR</div>
-            <div>hr@spectron.com | Ext. 2001</div>
+            <div>hr@hrpolicyhub.in </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -762,7 +762,7 @@ def render_chat_area(assistant):
         st.markdown("""
         <div class="welcome-banner">
             <div class="welcome-icon">👋</div>
-            <div class="welcome-title">Welcome to Spectron HR Support</div>
+            <div class="welcome-title">Welcome to HR Support</div>
             <div class="welcome-text">
                 I'm here to help you with any questions about company policies, benefits, leave, 
                 compensation, and more. Just type your question below or click a policy to learn more.
